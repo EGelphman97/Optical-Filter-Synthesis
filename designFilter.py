@@ -1,71 +1,192 @@
 #Eric Gelphman
 #UC San Diego Department of Electrical and Computer Engineering
-#January 21, 2020
+#January 26, 2020
 
 """
 Python Script that has methods to obtain the transfer function H(z)
 Of digital filters as an array of coefficients. These coefs. will then be passed
 to latticeFilterSynthesis.py to determine the lattice parameters
-Version 1.0.0
+Version 1.0.1
 """
 
 import numpy as np
-from scipy import special as ss
-
-#Function that returns the mimimum of two doubles/floats
-def minimum(arg1, arg2):
-    if arg1 < arg2:
-        return arg1
-    elif arg2 < arg1:
-        return arg2
-    else:#Else, both arguments are equal
-        return arg1
+from scipy.signal import kaiserord, firwin2, freqz, remez, firls
+import matplotlib.pyplot as plt
 
 """
-Function to determine the low-pass FIR filter coefficients using a Kaiser window
-Parameters:   ws: Stopband endge, 0 <= ws <= pi
-              wp: Passband edge, 0 <= wp <= pi
-              delt_p: Passband attenuation tolerance
-              delt_s: Stopband attenuation tolerance
-Return:       Array which holds filter coeffients, index refers to power of z^-1
+Function to obtain the normalized angular frequency omega, 0 <= omega <= pi value from a given (continous-time) wavelength value lamda
+Parameters:  lamda0 = longest wavelength in range of interest, in m
+             lamda1 = shortest wavelength in range of interest, in m
+             lamda = wavelength you want to find normalized frequency for, in m
+Return: Normalized frequency omega, 0 <= omega <= pi
 """
-def kaiserWindow(ws, wp, delt_p, delt_s):
-    #First, determine transition width and attenuation
-    delta_w = ws - wp
-    A = -20*np.log10(minimum(delt_p, delt_s))
-    print("A = " + str(A))
+def convertToNormalizedFrequency(lamda0,lamda1, lamda):
+    c = 3.0E8#The speed of light
+    f1 = c/lamda1
+    f0 = c/lamda0
+    f = c/lamda
+    FSR = 2*(f1-f0)
+    omega = (2.0*np.pi*f)/FSR
+    return omega
 
-    #Determine the filter order, M
-    M = np.ceil((A-8.0)/(2.285*delta_w))
-    print(M)
-    #Build coef. array
-    coefs = np.zeros(int(M+1), dtype=complex)
-    alpha = M/2
-    w_c = (wp + ws)/2#Center frequency
+"""
+Function to determine the coefficients of a multiband FIR filter with corresponding passbands and gains using a Kaiser window
+
+Parameters:   ripple: max. deviation in dB of the realized filter's frequnecy response from the ideal frequnecy response
+              t_width: min. transition width for any band in the multiband filter. This needs to be such that 
+              bands: list of 3-tuples (omega_p1, omega_p2, G) were omega_p1 <= omega <= omega_p2 is one passband of the multiband filter, G is the passband gain in linear scale
+              plot: default is True, set to false to NOT plot the frequency response
+              
+Return:       coefs: ndarray which holds filter coeffients, index refers to power of z^-1
+              order: order of filter 
+"""
+def designFIRFilterKaiser(ripple, t_width, bands, plot=True):
+    PI = np.pi
+    #t_width = determine t_width()
+    n_coefs, beta = kaiserord(ripple, t_width)#Determine order and paramter beta of Kaiser window
+    freq = []#Frequency points
+    gain = []#Gain of filter at frequency points in freq
     
-    #Determine the parameter beta
-    beta = 0.0
-    if 21.0 <= A and A <= 50.0:
-        beta = 0.5842*((A-21.0)**0.41) + 0.07886*(A-21.0)
-    elif A > 50.0:
-        beta = 0.1102*(A-8.7)
-    #If A < 21.0, beta = 0.0 ======> Rectangular window
-   
-    for ii in range(int(M+1)):
-        sinc_n = np.sin((w_c*(ii-alpha))/(np.pi*(ii-alpha)))#Ideal LPF impulse response
-        if A >= 21.0:#Kaiser window
-            kaiser_window = ss.i0(beta*np.sqrt(1.0 - ((ii-alpha)/alpha)**2))/ss.i0(beta)
-            print(kaiser_window)
-            coefs[ii] = sinc_n*kaiser_window
-        else:#Rectangular window
-            coefs[ii] = sinc_n
-    return coefs
+    #Build lists freq and gain
+    for ii in range(len(bands)):
+        if (bands[ii][0]-t_width not in freq) and (bands[ii][0] != 0.0):
+            freq.append(bands[ii][0]-t_width)
+            gain.append(0.0)
+        freq.append(bands[ii][0])
+        gain.append(bands[ii][2])
+        freq.append(bands[ii][1])
+        gain.append(bands[ii][2])
+        if bands[ii][1] <= PI-t_width:
+            freq.append(bands[ii][1]+t_width)
+            gain.append(0.0)
+    print("Number of Coefs.: " + str(n_coefs))
+    if 0.0 not in freq:
+        freq.insert(0,0.0)
+        gain.insert(0,0.0)
+    if PI not in freq:
+        freq.append(PI)
+        gain.append(0.0)
+    print(np.array(freq))
+    print(np.array(gain))
+    
+    #Design the filter
+    coefs = firwin2(n_coefs, freq, gain, window=('kaiser',beta), nyq=PI)
+    
+    if plot:
+        w, h = freqz(coefs)
+        plt.title('Kaiser Window filter frequency response')
+        plt.plot(w, 20*np.log10(abs(h)), 'b')
+        plt.ylabel('Amplitude [dB]', color='b')
+        plt.xlabel('Frequency [rad/sample]')
+        plt.show()
+    order = n_coefs - 1
+    return coefs, order
 
 """
+Function to determine the coefficients of a multiband equiripple FIR filter with corresponding passbands and gains using the Parks-McClellan algorithm,
+implemented using scipy.signals's remez()
+
+Parameters:   order: Order of filter
+              bands: list of 3-tuples (omega_p1, omega_p2, G) were omega_p1 <= omega <= omega_p2 is one passband of the multiband filter, G is the passband gain in linear scale
+              plot: default is True, set to false to NOT plot the frequency response
+              
+Return:       coefs: ndarray which holds filter coeffients, index refers to power of z^-1
+              order: order of filter 
+"""
+def designFIRFilterPMcC(order, t_width, bands, plot=True):
+    PI = np.pi
+    freq = []#Frequency points
+    gain = []#Gain of filter for bands in freq, size of this list should be exactly half the size of freq
+    
+    #Build lists freq and gain
+    for ii in range(len(bands)):
+        if bands[ii][0] != 0.0:
+            freq.append(bands[ii][0]-t_width)
+            gain.append(0.0)
+        freq.append(bands[ii][0])
+        gain.append(bands[ii][2])
+        freq.append(bands[ii][1])
+        if bands[ii][1] != PI:
+            freq.append(bands[ii][1]+t_width)
+    if 0.0 not in freq:
+        freq.insert(0,0.0)
+    if PI not in freq:
+        freq.append(PI)
+        gain.append(0.0)
+    print(np.array(freq))
+    print(np.array(gain))
+
+    #Design the filter
+    coefs = remez(order+1, freq, gain, fs=2.0*PI)
+    if plot:
+        w, h = freqz(coefs)
+        plt.title('Equiripple filter frequency response')
+        plt.plot(w, 20*np.log10(abs(h)), 'b')
+        plt.ylabel('Amplitude [dB]', color='b')
+        plt.xlabel('Frequency [rad/sample]')
+        plt.show()
+    order = coefs.size - 1
+    return coefs, order
+
+"""
+Function to determine the coefficients of a multiband FIR filter that is optimal in the least-squares sense. The filter coefficients are determined
+using scipy.signal's firls()
+
+Parameters:   order: Order of filter. This must be even, so numtaps = order + 1 is odd
+              bands: list of 3-tuples (omega_p1, omega_p2, G) were omega_p1 <= omega <= omega_p2 is one passband of the multiband filter, G is the passband gain in linear scale
+              plot: default is True, set to false to NOT plot the frequency response
+              
+Return:       coefs: ndarray which holds filter coeffients, index refers to power of z^-1
+              order: order of filter 
+"""
+def designFIRFilterLS(order, t_width, bands, plot=True):
+    PI = np.pi
+    freq = []#Frequency points
+    gain = []#Gain of filter for bands in freq, size of this list should be exactly the same size as freq
+    
+    #Build lists freq and gain
+    for ii in range(len(bands)):
+        if bands[ii][0] != 0.0:
+            freq.append(bands[ii][0]-t_width)
+            gain.append(0.0)
+        freq.append(bands[ii][0])
+        gain.append(bands[ii][2])
+        freq.append(bands[ii][1])
+        gain.append(bands[ii][2])
+        if bands[ii][1] != PI:
+            freq.append(bands[ii][1]+t_width)
+            gain.append(0.0)
+    if 0.0 not in freq:
+        freq.insert(0,0.0)
+        gain.append(0.0)
+    if PI not in freq:
+        freq.append(PI)
+        gain.append(0.0)
+    print(np.array(freq))
+    print(np.array(gain))
+
+    #Design the filter
+    coefs = firls(order+1, freq, gain, fs=2.0*PI)
+    if plot:
+        w, h = freqz(coefs)
+        plt.title('Least-Squares filter frequency response')
+        plt.plot(w, 20*np.log10(abs(h)), 'b')
+        plt.ylabel('Amplitude [dB]', color='b')
+        plt.xlabel('Frequency [rad/sample]')
+        plt.show()
+    order = coefs.size - 1
+    return coefs, order
+    
+
+
 
 def main():
-    print(kaiserWindow(0.65*np.pi, 0.4*np.pi, 0.1, 0.1))
+    PI = np.pi
+    bands = [(0.3*PI, 0.4*PI, 1.0), (0.6*PI, 0.75*PI,0.75)]
+    coefs, n_coefs = designFIRFilterKaiser(40, 0.05*PI, bands)
+    print(n_coefs)
+    
 
 if __name__ == '__main__':
     main()
-"""
+
