@@ -1,9 +1,9 @@
 #Eric Gelphman
 #UC San Diego Department of Electrical and Computer Engineering
-#January 26, 2020
+#January 27, 2020
 
 #Implementation of Madsen and Zhao's Optical FIR Lattice Filter Design Algorithm
-#Version 1.0.1
+#Version 1.0.2
 
 import designFilter as dF
 import numpy as np
@@ -22,29 +22,19 @@ def findBPoly(A):
     bbr_coef = -1.0*np.polymul(A.coef,np.flip(A.coef))
     bbr = np.poly1d(np.polyadd(bbr_coef,phase_arr))#Polynomial B_N(z)B_NR(z)
     roots = bbr.roots#Find roots of B_N(z)B_NR(z)
-    """
+    b_roots = roots[0:roots.size-1:2]#B(z)BR(z) has n roots, n is event, B(z) has n/2 roots
     print("Roots:")
     print(roots)
     print()
-    """
-    #Construct Polynomial B_N(z) and B_NR(z)
-    b_roots = [];#List of roots of polynomial B_N(z) 
-    br_roots = [];#List of roots of polynomial B_NR(z)
-    for ii in range(0,roots.size - 1):
-        zp = roots[ii]
-        #Spectral Factorization: Pick which roots to assign to B(z), which to assign to B_R(z)
-        if ii % 2 == 0:
-            b_roots.append(zp)
-        else:
-            br_roots.append(zp)
     B_tild = np.poly1d(b_roots, True)#Construct polynomial from its roots
+    #print(B_tild)
     alpha = np.sqrt((-A.coef[0]*A.coef[A.coef.size - 1])/(B_tild.coef[0]*B_tild.coef[B_tild.coef.size - 1]))#Scale factor
+    
+    print(B_tild.coef[0]*B_tild.coef[B_tild.coef.size - 1])
     B = alpha*B_tild#Build B_N(z) by scaling B_tild(z) by alpha
-    """
     print("B: ")
     print(np.poly1d(B))
     print()
-    """
     return np.poly1d(B)
 
 """
