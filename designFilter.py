@@ -143,6 +143,7 @@ def designFIRFilterLS(order, t_width, bands, plot=True):
     PI = np.pi
     freq = []#Frequency points
     gain = []#Gain of filter for bands in freq, size of this list should be exactly the same size as freq
+    weight = []#Weighting function chosen to minize passband loss
     
     #Build lists freq and gain
     for ii in range(len(bands)):
@@ -165,6 +166,12 @@ def designFIRFilterLS(order, t_width, bands, plot=True):
     print(np.array(freq))
     print(np.array(gain))
 
+    for ii in range(len(gain)):
+        if gain[ii] == 0.0:
+            weight.append(0)
+        else:
+            weight.append(1)
+
     #Design the filter
     coefs = firls(order+1, freq, gain, fs=2.0*PI)
     if plot:
@@ -183,7 +190,7 @@ def designFIRFilterLS(order, t_width, bands, plot=True):
 def main():
     PI = np.pi
     bands = [(0.3*PI, 0.4*PI, 1.0), (0.6*PI, 0.75*PI,0.75)]
-    coefs, n_coefs = designFIRFilterKaiser(40, 0.05*PI, bands)
+    coefs, n_coefs = designFIRFilterPMcC(160, 0.05*PI, bands)
     print(n_coefs)
     
 
