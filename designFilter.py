@@ -1,18 +1,27 @@
 #Eric Gelphman
 #UC San Diego Department of Electrical and Computer Engineering
-#January 26, 2020
+#February 2, 2020
 
 """
 Python Script that has methods to obtain the transfer function H(z)
 Of digital filters as an array of coefficients. These coefs. will then be passed
 to latticeFilterSynthesis.py to determine the lattice parameters
-Version 1.0.1
+Version 1.0.2
 """
 
 import numpy as np
 from scipy.signal import kaiserord, firwin2, freqz, remez, firls
 import matplotlib.pyplot as plt
 
+"""
+Function to calculate the unit delay length of the filter
+Parameters: lamda_start = smallest wavelength in range of interest, in nm
+            lamda_end = longest wavelength in rane og interest, in nm
+"""
+def calcUnitDelayLength(lamda_start, lamda_end, n_eff):
+    denom = 2.0*((1.0/lamda_start)-(1.0/lamda_end))*n_eff
+    L_U = 1.0/denom
+    return L_U
 """
 Function to obtain the normalized angular frequency omega, 0 <= omega <= pi value from a given (continous-time) wavelength value lamda
 Parameters:  lamda0 = longest wavelength in range of interest, in m
@@ -113,11 +122,18 @@ def designFIRFilterPMcC(order, t_width, bands, plot=True):
     if PI not in freq:
         freq.append(PI)
         gain.append(0.0)
-    print(np.array(freq))
-    print(np.array(gain))
+
+    weight = []#Weighting function to plug into remez exchnage algorithm
+    for ii in range(len(gain)):
+        if gain[ii] == 0.0:
+            weight.append(4.0)
+        else:
+            weight.append(2.0)
+    print(gain)
+    print(weight)
 
     #Design the filter
-    coefs = remez(order+1, freq, gain, fs=2.0*PI)
+    coefs = remez(order+1, freq, gain, weight, fs=2.0*PI)
     if plot:
         w, h = freqz(coefs)
         plt.title('Equiripple filter frequency response')
@@ -167,13 +183,14 @@ def designFIRFilterLS(order, t_width, bands, plot=True):
     print(np.array(gain))
 
     for ii in range(len(gain)):
-        if gain[ii] == 0.0:
-            weight.append(0)
-        else:
-            weight.append(1)
+        if ii % 2 == 0:
+            if gain[ii] == 0.0:
+                weight.append(5.0)
+            else:
+                weight.append(2.0)
 
     #Design the filter
-    coefs = firls(order+1, freq, gain, fs=2.0*PI)
+    coefs = firls(order+1, freq, gain, weight, fs=2.0*PI)
     if plot:
         w, h = freqz(coefs)
         plt.title('Least-Squares filter frequency response')
@@ -185,15 +202,14 @@ def designFIRFilterLS(order, t_width, bands, plot=True):
     return coefs, order
     
 
-
-
+"""
 def main():
     PI = np.pi
     bands = [(0.3*PI, 0.4*PI, 1.0), (0.6*PI, 0.75*PI,0.75)]
-    coefs, n_coefs = designFIRFilterPMcC(160, 0.05*PI, bands)
+    coefs, n_coefs = designFIRFilterPMcC(50, 0.05*PI, bands)
     print(n_coefs)
     
 
 if __name__ == '__main__':
     main()
-
+"""

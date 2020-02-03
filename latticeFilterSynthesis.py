@@ -7,50 +7,50 @@
 
 import designFilter as dF
 import numpy as np
+from scipy import integrate
 
 #Function to calculate max. passband attenuation/passband insertion loss
 #A_N is the transfer function of the FIR filter as a numpy poly1d object
 #bands is a list of passbands
 def calcInsertionLoss(A_N, bands):
-    overall_max = 0.0
+    overall_max = []
     for band in bands:
-        #Find maximum deviation from ideal value in passband
-        maximum = 0.0
+        #Find maximum deviation from ideal value in passband by numerically integrating |A_N(z)| over the passband
         freqpoints = np.linspace(band[0],band[1],num=100)
-        for omega in freqpoints:
+        magA_z_vals = np.zeros(100)
+        for ii in freqpoints:
             N = A_N.coef.size
-            val = np.absolute(np.polyval(A_N,np.exp(omega*1j)**(-N)))
-            val = band[2] - val
-            if val > maximum:
-                maximum = val
-        if maximum > overall_max:
-            overall_max = maximum
-    return 20.0*np.log10(overall_max)#Return value in dB
+            val = np.absolute(np.polyval(A_N,np.exp(ii*1j)**(-N)))
+            magA_z_vals[int(ii)] = val
+        avg_val = (1.0/(band[1]-band[0]))*integrate.simps(magA_z_vals,freqpoints, even='avg')
+        overall_max.append(np.absolute(band[2]-avg_val))
+    result = np.amin(overall_max)
+    return 20.0*np.log10(result)#Return value in dB
 
-#Function to determine if a frequency is in the passband
-def inPassBand(bands, t_width, freq):
+#Function to determine if a frequency is in the stopband
+def inStopBand(bands, t_width, freq):
+    result = True
     for band in bands:
-        if (band[0]-t_width) <= freq and (band[1]+t_width) >= freq:
-            return True
-    return False
+        if band[0]-t_width <= freq and band[1]+t_width >= freq:
+            result = False
+    return result
 
 #Function to calculate stopband extinction
 def calcStopbandExtinction(A_N, bands, t_width):
-    overall_max = 0.0
-    for band in bands:
-        #Find maximum magnitude of transfer function in passband
-        maximum = 0.0
-        freqpoints = np.linspace(0.0,np.pi,num=1000)
-        for omega in freqpoints:
-            if inPassBand(bands, 2.0*t_width, omega) == False:
-                N = A_N.coef.size
-                val = np.absolute(np.polyval(A_N,np.exp(omega*1j)**(-N)))
-                if val > maximum:
-                    maximum = val
-        if maximum > overall_max:
-            overall_max = maximum
-    print(overall_max)
-    return -20.0*np.log10(overall_max)#Return value in dB
+    #Find maximum magnitude of transfer function in stopband by numerically integrating |A_N(z)| over the stopband
+    freqpoints = np.linspace(0.0,np.pi,num=1200)
+    magA_z_vals = []#Values of A_N(z) actually in stopband
+    #stopbandPoints = []#Frequency points actually in stopband
+    for ii in freqpoints:
+        #If point is actually in the stopband
+        if inStopBand(bands, t_width, ii):
+            N = A_N.coef.size
+            val = np.absolute(np.polyval(A_N,np.exp(ii*1j)**(-N)))**2
+            magA_z_vals.append(val)
+            #stopbandPoints.append(ii)
+    print(magA_z_vals)
+    avg_val = np.average(np.array(magA_z_vals)) 
+    return -20.0*np.log10(avg_val)#Return value in dB
      
     
     
@@ -141,7 +141,7 @@ def writeLayoutParametersToFile(kappas, lcsg, filename, insertionLoss, extinctio
     file1 = open(filename, 'r+')#open file
     file1.write("Filter Design Method: " + method + " Filter Order: " + str(order)+ "\n")
     file1.write("Insertion Loss: " + str(insertionLoss) + " dB" + "\n")
-    #file1.write("Extinction: " + str(extinction) + " dB" + "\n")
+    file1.write("Extinction: " + str(extinction) + " dB" + "\n")
     for ii in range(len(kappas)):#Write paramters to file
         file1.write("kappa: " + str(kappas[ii]) + " L_c: " + str(lcsg[ii][0]) + " c_" +str(ii) + ": " + str(lcsg[ii][1]) +
                     " s_" +str(ii) + ": " + str(lcsg[ii][2]) + " gamma_" +str(ii) + ": " + str(lcsg[ii][3]) +"\n")
@@ -150,16 +150,16 @@ def writeLayoutParametersToFile(kappas, lcsg, filename, insertionLoss, extinctio
     
 def main():
     PI = np.pi
-    bands = []
-    bands.append((0.3*PI, 0.5*PI,1.0))
-    A_N, N = dF.designFIRFilterLS(22, 0.05*PI, bands, plot=True)
+    #bands = [(0.3*PI,0.45*PI,1.0)]
+    bands = [(0.3*PI, 0.4*PI, 1.0), (0.65*PI, 0.75*PI,0.75)]
+    A_N, N = dF.designFIRFilterPMcC(25, 0.03*PI, bands, plot=True)
     print("Order: " + str(N))
     #N = 2
     #A_N = np.poly1d([-0.25,0.25*2.0*np.cos(np.pi/6),-0.25])
     A_z = np.poly1d(A_N)
     kap_l, ph_l, lcsg = synthesizeFIRLattice(A_z, N)
     insertionLoss = calcInsertionLoss(A_z, bands)
-    extinction = calcStopbandExtinction(A_z, bands, 0.05*PI)
+    extinction = calcStopbandExtinction(A_z, bands, 0.03*PI)
     writeLayoutParametersToFile(kap_l, lcsg, "layoutParameters.txt", insertionLoss, extinction, N, "Parks-McClellan")
     
     #N = 2
