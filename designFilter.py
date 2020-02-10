@@ -1,42 +1,17 @@
 #Eric Gelphman
 #UC San Diego Department of Electrical and Computer Engineering
-#February 2, 2020
+#February 9, 2020
 
 """
 Python Script that has methods to obtain the transfer function H(z)
 Of digital filters as an array of coefficients. These coefs. will then be passed
 to latticeFilterSynthesis.py to determine the lattice parameters
-Version 1.0.2
+Version 1.0.3
 """
 
 import numpy as np
 from scipy.signal import kaiserord, firwin2, freqz, remez, firls
 import matplotlib.pyplot as plt
-
-"""
-Function to calculate the unit delay length of the filter
-Parameters: lamda_start = smallest wavelength in range of interest, in nm
-            lamda_end = longest wavelength in rane og interest, in nm
-"""
-def calcUnitDelayLength(lamda_start, lamda_end, n_eff):
-    denom = 2.0*((1.0/lamda_start)-(1.0/lamda_end))*n_eff
-    L_U = 1.0/denom
-    return L_U
-"""
-Function to obtain the normalized angular frequency omega, 0 <= omega <= pi value from a given (continous-time) wavelength value lamda
-Parameters:  lamda0 = longest wavelength in range of interest, in m
-             lamda1 = shortest wavelength in range of interest, in m
-             lamda = wavelength you want to find normalized frequency for, in m
-Return: Normalized frequency omega, 0 <= omega <= pi
-"""
-def convertToNormalizedFrequency(lamda0,lamda1, lamda):
-    c = 3.0E8#The speed of light
-    f1 = c/lamda1
-    f0 = c/lamda0
-    f = c/lamda
-    FSR = 2*(f1-f0)
-    omega = (2.0*np.pi*f)/FSR
-    return omega
 
 """
 Function to determine the coefficients of a multiband FIR filter with corresponding passbands and gains using a Kaiser window
@@ -68,15 +43,15 @@ def designFIRFilterKaiser(ripple, t_width, bands, plot=True):
         if bands[ii][1] <= PI-t_width:
             freq.append(bands[ii][1]+t_width)
             gain.append(0.0)
-    print("Number of Coefs.: " + str(n_coefs))
+    #print("Number of Coefs.: " + str(n_coefs))
     if 0.0 not in freq:
         freq.insert(0,0.0)
         gain.insert(0,0.0)
     if PI not in freq:
         freq.append(PI)
         gain.append(0.0)
-    print(np.array(freq))
-    print(np.array(gain))
+    #print(np.array(freq))
+    #print(np.array(gain))
     
     #Design the filter
     coefs = firwin2(n_coefs, freq, gain, window=('kaiser',beta), nyq=PI)
