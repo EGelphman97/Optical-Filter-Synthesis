@@ -8,6 +8,8 @@
 import designFilter as dF
 import numpy as np
 from scipy import integrate
+from scipy.signal import freqz
+import matplotlib.pyplot as plt
 
 """
 Function to calculate the unit delay length of the filter
@@ -131,9 +133,7 @@ Parameters: kappa: power coupling coefficient(Prof. Mookherjea's kappa^2, Madsde
             lamda_1: wavelength, in um, of shortest wavelength in filter spectrum
 """
 def calcLengths(kappa, lamda_0, lamda_1):
-    Lc_0 = (-37.5*lamda_0) + 73.625
-    Lc_1 = (-37.5*lamda_1) + 73.625
-    L_c = 1.5425 #Length in um
+    L_c = 15.85 #Length in um, from graph on slide 9
     psy = (2.0/np.pi)*np.arcsin(np.sqrt(kappa))
     lc_lend = psy*L_c
     return L_c, lc_lend
@@ -180,30 +180,27 @@ def synthesizeFIRLattice(A_N, N, lamda_0, lamda_1):
 """
 Function to get the 2x2 transfer function of the filter given the power coupling ratio kappa for each stage
 Parameters: kappas: array of kappa_n's 0 <= n <= N    N = filter order
-Return: Transfer function of filter as 2x2 matrix
+            phis:   array of phi_n's 1<= n <= N
+Return: Polynomials A_N(z), B_N(z), A_N_R(z), B_N_R(z) that form 2x2 transfer function of filter
 """
-def fromKappasGetTransferFunction(kappas):
+def fromKappasGetTransferFunction(kappas, phis):
     A_N_1 = np.poly1d([np.sqrt(1.0-kappas[0])])
     B_N_1 = np.poly1d([np.sqrt(kappas[0])])
     for ii in range(1,kappas.size):
         c_n = np.sqrt(1.0-kappas[ii])
         s_n = np.sqrt(kappas[ii])
-        poly1arr = np.zeros(2)
-        poly1arr[0] = c_n
-        poly2arr = (s_n*(-1j))*B_N_1
+        poly1arr = np.zeros(2,dtype=complex)
+        poly1arr[0] = c_n*np.exp(-1j*phis[ii-1])
+        poly2arr = (s_n*-1j)*B_N_1
         A_N = np.polyadd(np.polymul(np.poly1d(poly1arr),A_N_1),np.poly1d(poly2arr))
         
-        poly1arr = np.zeros(2,dtype=complex)
-        poly1arr[0] = (s_n*(-1j))
-        poly2arr = c_n*B_N_1
-        C_N = np.polymul(np.poly1d(poly1arr),A_N_1)
-        print(C_N)
-        B_N = np.polyadd(np.polymul(np.poly1d(poly1arr),A_N_1),np.poly1d(poly2arr))
+        poly3arr = np.zeros(2,dtype=complex)
+        poly3arr[0] = (s_n*-1j)*np.exp(-1j*phis[ii-1])
+        poly4arr = c_n*B_N_1
+        B_N = np.polyadd(np.polymul(np.poly1d(poly3arr),A_N_1),np.poly1d(poly4arr))
 
         A_N_1 = A_N
         B_N_1 = B_N
-        print(A_N_1)
-        print(B_N_1)
         
     A_N_R = np.poly1d(np.conj(np.flip(A_N_1.coef)))
     B_N_R = np.poly1d(np.conj(np.flip(B_N_1.coef)))
@@ -231,7 +228,6 @@ def writeLayoutParametersToFile(kappalcs, L_U, filename, insertionLoss, order, m
     
     
 def main():
-    """
     PI = np.pi
     lamda_0 = 1565#nanometers
     lamda_1 = 1520#nanometers
@@ -239,7 +235,7 @@ def main():
     lamda_1 = lamda_1*(1E-03)#microns
     #bands = [(0.3*PI,0.45*PI,1.0)]
     bands = [(0.3*PI, 0.4*PI, 1.0), (0.65*PI, 0.75*PI,0.75)]
-    A_N, N = dF.designFIRFilterKaiser(40, 0.05*PI, bands, plot=False)
+    A_N, N = dF.designFIRFilterPMcC(29, 0.05*PI, bands, plot=False)
     """
     N = 2
     A_N = np.poly1d([-0.25, 0.5, -0.25])
@@ -250,15 +246,20 @@ def main():
     A_z = np.poly1d(A_N)
     kappalcs, ph_l = synthesizeFIRLattice(A_z, N, lamda_0, lamda_1)
     L_U = calcUnitDelayLength(lamda_1, lamda_0, 5.5772)
-    #print(kap_l)
     insertionLoss = calcInsertionLoss(A_z, bands)
-    writeLayoutParametersToFile(kappalcs, L_U, "layoutParameters.txt", insertionLoss, N, "Kaiser")
-    """
-
-    kappas = np.array([0.8536, 0.5, 0.1464])
-    A_N, B_N, A_N_R, B_N_R = fromKappasGetTransferFunction(kappas)
-    print(A_N)
-    print(B_N)
+    writeLayoutParametersToFile(kappalcs, L_U, "layoutParameters.txt", insertionLoss, N, "Parks-McClellan")
+    kappas = np.zeros(len(kappalcs))
+    for ii in range(len(kappalcs)):
+        kappas[ii] = kappalcs[ii][0]
+    #kappas = np.array([0.1464, 0.5, 0.8536])
+    #phis = np.array([np.pi, 0.0])
+    A_N, B_N, A_N_R, B_N_R = fromKappasGetTransferFunction(kappas, ph_l)
+    w, h = freqz(A_N_R.coef)
+    plt.title('Equiripple filter frequency response')
+    plt.plot(w, 20*np.log10(abs(h)), 'b')
+    plt.ylabel('Amplitude [dB]', color='b')
+    plt.xlabel('Frequency [rad/sample]')
+    plt.show()
     
                  
 if __name__ == '__main__':

@@ -101,9 +101,9 @@ def designFIRFilterPMcC(order, t_width, bands, plot=True):
     weight = []#Weighting function to plug into remez exchnage algorithm
     for ii in range(len(gain)):
         if gain[ii] == 0.0:
-            weight.append(4.0)
+            weight.append(10.0)
         else:
-            weight.append(2.0)
+            weight.append(1.0)
     print(gain)
     print(weight)
 
@@ -160,9 +160,9 @@ def designFIRFilterLS(order, t_width, bands, plot=True):
     for ii in range(len(gain)):
         if ii % 2 == 0:
             if gain[ii] == 0.0:
-                weight.append(5.0)
+                weight.append(10.0)
             else:
-                weight.append(2.0)
+                weight.append(1.0)
 
     #Design the filter
     coefs = firls(order+1, freq, gain, weight, fs=2.0*PI)
