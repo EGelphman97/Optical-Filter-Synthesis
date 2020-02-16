@@ -1,9 +1,9 @@
 #Eric Gelphman
 #UC San Diego Department of Electrical and Computer Engineering
-#February 11, 2020
+#February 15, 2020
 
 #Implementation of Madsen and Zhao's Optical FIR Lattice Filter Design Algorithm
-#Version 1.0.5
+#Version 1.0.6
 
 import designFilter as dF
 import numpy as np
@@ -87,12 +87,38 @@ def levinsonM161B(A_N):
         gammas[ii-1] = -1.0*A_N_1[A_N_1.size-1]
         A_N = np.poly1d(A_N_1)
     return gammas
-    
-            
+
+"""
+Function to perform spectral factorization for the roots of B(z)BR(z) in findBPoly()
+Parameters: roots: array of roots of the polynomial B(z)BR(z) which is of degree 2*order
+            order: degree of B(z)
+Return: array of roots of B(z)
+"""
+def spectralFactorization(roots, order):
+    b_roots = []
+    for ii in range(roots.size):
+        if np.abs(roots[ii]) < 1.0:
+            b_roots.append(roots[ii])
+    if len(b_roots) < order:#B(z)BR(z) has n roots, n is even, B(z) has n/2 roots, make sure B(z) has this many roots
+        #Assign minimum phase roots to B(z) as per Madsden and Zhao section 4.5 pg. 203-204
+        while len(b_roots) < order:
+            for ii in range(roots.size):
+                if b_roots.count(roots[ii]) == 0:
+                    b_roots.append(roots[ii])
+                    break
+    elif len(b_roots) > order:
+        print("here")
+        num_excess = len(b_roots) - order
+        for ii in range(int(num_excess)):
+            reomoved = b_roots.pop()
+    return np.array(b_roots)
 
 """
 Function to find the polynomial B_N(z) which is needed to find the 2x2 transfer function of the optical filter
-Parameters: A: Polynomial(represented by NumPy's poly1d class) in z^-1 of degree N that also is part of the 2x2 transfer function
+Parameters: A: polynomial(poly1d) in z^-1 of degree N that also is part of the 2x2 transfer function
+               Note that z^-N term should occupy position 0 in coefficient array, with other terms occupying
+               the indices in descending powers of z^-1. E.g.: z^-(N-1) term should occupy position 1 in coefficient
+               array, z^-(N-2) term should occupy position2, ... , constant term occupies position A.coef.size-1 in array
 Return:     Polynomial(poly1d) in z^-1 of degree N B_N(z)
 """
 def findBPoly(A):
@@ -101,16 +127,24 @@ def findBPoly(A):
     bbr_coef = -1.0*np.polymul(A.coef,np.flip(A.coef))
     bbr = np.poly1d(np.polyadd(bbr_coef,phase_arr))#Polynomial B_N(z)B_NR(z)
     roots = bbr.roots#Find roots of B_N(z)B_NR(z)
-    b_roots = roots[0:roots.size-1:2]#B(z)BR(z) has n roots, n is event, B(z) has n/2 roots
+    
+    #Plot the zeros
+    theta = np.linspace(-np.pi, np.pi, 201)
+    plt.plot(np.sin(theta), np.cos(theta), color = 'gray', linewidth=0.2)
+    plt.plot(np.real(roots),np.imag(roots), 'Xb', label='Zeros')
+    plt.title("Pole-Zero Plot")
+    plt.xlabel("Real")
+    plt.ylabel("Imaginary")
+    plt.grid()
+    plt.show()
+
+    #Spectral factorization
+    b_roots = spectralFactorization(roots, bbr.order/2)
     B_tild = np.poly1d(b_roots, True)#Construct polynomial from its roots
-    alpha = np.sqrt((-A.coef[0]*A.coef[A.coef.size - 1])/(B_tild.coef[0]*B_tild.coef[B_tild.coef.size - 1]))#Scale factor
+    alpha = np.sqrt((-A.coef[A.coef.size-1]*A.coef[0])/(B_tild.coef[B_tild.coef.size-1]*B_tild.coef[0]))#Scale factor
     B = alpha*B_tild#Build B_N(z) by scaling B_tild(z) by alpha
-    """
-    print("B: ")
-    print(np.poly1d(B))
-    print()
-    """
-    return np.poly1d(B)
+    
+    return np.poly1d(np.flip(B))
 
 """
 Function to compute the power coupling ratio (kappa_N)^2 of stage N of the optical filter
@@ -120,7 +154,7 @@ Return:     kappa_N_sq: Coupling coefficient of stage N of the filter
 """
 def calcPowerCouplingRatio(A_N, B_N):
     arr = B_N.coef
-    beta = np.absolute(B_N.coef[B_N.coef.size-1]/A_N.coef[A_N.coef.size-1])**2
+    beta = np.absolute(B_N.coef[0]/A_N.coef[0])**2
     kappa = beta/(1.0 + beta)
     return kappa
 
@@ -164,12 +198,13 @@ def synthesizeFIRLattice(A_N, N, lamda_0, lamda_1):
         kappalcs.insert(0,(kappa, L_c, lc_lend, c_n, s_n))
         if n > 0:
             B_N1_arr = np.polyadd(-s_n*A_N,c_n*B_N)#Step-down recursion relation for B polynomial of stage N-1, this is an ndArray
-            B_N1 = np.poly1d(B_N1_arr[0:B_N1_arr.size-1])#Reduce order by 1          
+            B_N1 = np.poly1d(B_N1_arr[1:B_N1_arr.size])#Reduce order by 1
             A_N1_tild = np.polyadd(c_n*A_N,s_n*B_N)
-            phi_n = -(np.angle(A_N1_tild[A_N1_tild.size-1])+np.angle(B_N1.coef[B_N1.coef.size-1]))
+            #print(np.poly1d(A_N1_tild))
+            phi_n = -(np.angle(A_N1_tild[0]) + np.angle(B_N1.coef[0]))
             phi_l.insert(0,phi_n)
-            A_N1_tild = gamma*np.exp(1j*phi_n)*A_N1_tild
-            A_N1 = np.poly1d(A_N1_tild[1:A_N1_tild.size])#Build polynomial A_N1(z), and reduce order by 1
+            A_N1_tild = np.exp(1j*phi_n)*A_N1_tild
+            A_N1 = np.poly1d(A_N1_tild[0:A_N1_tild.size-1])#Build polynomial A_N1(z), and reduce order by 1 by eliminating the constant term(multiplying by z)
         n = n - 1
         A_N = A_N1
         B_N = B_N1
@@ -178,40 +213,40 @@ def synthesizeFIRLattice(A_N, N, lamda_0, lamda_1):
 """
 Function to get the 2x2 transfer function of the filter given the power coupling ratio kappa for each stage
 Parameters: kappas: array of kappa_n's 0 <= n <= N    N = filter order
-            phis:   array of phi_n's 1<= n <= N
+            phis:   array of phi_n's 1 <= n <= N
 Return: Polynomials A_N(z), B_N(z), A_N_R(z), B_N_R(z) that form 2x2 transfer function of filter
 """
 def fromKappasGetTransferFunction(kappas, phis):
-    A_N_1 = np.poly1d([np.sqrt(1.0-kappas[0])])#A_0(z) = c_0
-    B_N_1 = np.poly1d([np.sqrt(kappas[0])])#B_0(z) = s_0
+    A_N1 = np.poly1d([np.sqrt(1.0-kappas[0])])#A_0(z) = c_0
+    B_N1 = np.poly1d([np.sqrt(kappas[0])])#B_0(z) = s_0
     for ii in range(1,kappas.size):
         c_n = np.sqrt(1.0-kappas[ii])
         s_n = np.sqrt(kappas[ii])
-        poly1arr = np.zeros(2,dtype=complex)
-        num1 = c_n*np.exp(-1j*phis[ii-1])
-        poly1arr[0] = num1
-        poly2arr = -s_n*B_N_1
-        A_N = np.polyadd(np.polymul(np.poly1d(poly1arr),A_N_1),np.poly1d(poly2arr))
-        
-        poly3arr = np.zeros(2,dtype=complex)
-        num2 = s_n*np.exp(-1j*phis[ii-1])
-        poly3arr[0] = num2
-        poly4arr = c_n*B_N_1
-        B_N = np.polyadd(np.polymul(np.poly1d(poly3arr),A_N_1),np.poly1d(poly4arr))
+        #Form A_N(z)
+        poly1arr = np.zeros(2,dtype='complex')
+        poly1arr[0] = c_n*np.exp(-1j*phis[ii-1])
+        poly2arr = np.multiply(-s_n,B_N1.coef)
+        A_N = np.polyadd(np.polymul(np.poly1d(poly1arr),A_N1),np.poly1d(poly2arr))
+        #Form B_N(z)
+        poly3arr = np.zeros(2,dtype='complex')
+        poly3arr[0] = s_n*np.exp(-1j*phis[ii-1])
+        poly4arr = np.multiply(c_n,B_N1.coef)
+        B_N = np.polyadd(np.polymul(np.poly1d(poly3arr),A_N1),np.poly1d(poly4arr))
+        #B_N = np.polyadd(np.polymul(np.poly1d(poly3arr),A_N_1),np.poly1d(poly4arr))
+        #Shouldn't have complex coefs.
+        for ii in range(A_N.coef.size):
+            if np.imag(A_N.coef[ii]) < 1.5E-16:
+                A_N.coef[ii] = np.real(A_N.coef[ii])
+            if np.imag(B_N.coef[ii]) < 1.5E-16:
+                B_N.coef[ii] = np.real(B_N.coef[ii])
 
-        A_N_1 = A_N
-        B_N_1 = B_N
+        A_N1 = A_N
+        B_N1 = B_N
 
-    for ii in range(A_N_1.coef.size):
-        if np.imag(A_N_1.coef[ii]) < 1.0E-16:
-            A_N_1.coef[ii] = np.real(A_N_1.coef[ii])
-        if np.imag(B_N_1.coef[ii]) < 1.0E-16:
-            B_N_1.coef[ii] = np.real(B_N_1.coef[ii])
-    A_N_R = np.poly1d(np.conj(np.flip(A_N_1.coef)))
-    B_N_R = np.poly1d(np.conj(np.flip(B_N_1.coef)))
-    return A_N_1, B_N_1, A_N_R, B_N_R
-    
-        
+    A_N_R = np.poly1d(np.conj(np.flip(A_N1.coef)))
+    B_N_R = np.poly1d(np.conj(np.flip(B_N1.coef)))
+    return A_N1, B_N1, A_N_R, B_N_R
+            
 
 #Function to write the layout paramters to a file
 def writeLayoutParametersToFile(kappalcs, L_U, filename, insertionLoss, order, method):
@@ -240,38 +275,42 @@ def main():
     lamda_1 = lamda_1*(1E-03)#microns
     #bands = [(0.3*PI,0.45*PI,1.0)]
     bands = [(0.3*PI, 0.4*PI, 1.0), (0.65*PI, 0.75*PI,0.75)]
-    A_N, N = dF.designFIRFilterPMcC(29, 0.05*PI, bands, plot=False)
+    A_N, N = dF.designFIRFilterPMcC(24, 0.05*PI, bands, plot=True)
+    #A_N = -1*A_N
     A_N = np.flip(A_N)#So indices match in numpy's poly1d  class
+    if A_N[0] > 0.0:
+        A_N = -1.0*A_N
     A_z = np.poly1d(A_N)
     print(A_z)
+    kappalcs, phis = synthesizeFIRLattice(A_z, N, lamda_0, lamda_1)
     """
     N = 2
     A_N = np.poly1d([-0.25, 0.5*np.cos(PI/6.0), -0.25])
     A_z = np.poly1d(A_N)
     print(A_z)
-    #gammas = levinsonM161B(A_z)
-    #print(gammas)
-    A_z = np.poly1d(A_N)
-    """
     kappalcs, phis = synthesizeFIRLattice(A_z, N, lamda_0, lamda_1)
+    kappas = np.zeros(len(kappalcs))
+    for ii in range(len(kappalcs)):
+        kappas[ii] = kappalcs[ii][0]
+    print(kappas)
+    A_N, B_N, A_N_R, B_N_R = fromKappasGetTransferFunction(kappas, phis)
+    print(np.poly1d(A_N))
+    """
     #L_U = calcUnitDelayLength(lamda_1, lamda_0, 5.5772)
     #insertionLoss = calcInsertionLoss(A_z, bands)
     #writeLayoutParametersToFile(kappalcs, L_U, "layoutParameters.txt", insertionLoss, N, "Parks-McClellan")
     kappas = np.zeros(len(kappalcs))
+    #print(np.array(phis))
     for ii in range(len(kappalcs)):
         kappas[ii] = kappalcs[ii][0]
-    #kappas = np.array([0.1464, 0.5, 0.8536])
-    #phis = np.array([np.pi, 0.0])
     A_N, B_N, A_N_R, B_N_R = fromKappasGetTransferFunction(kappas, phis)
-    print(np.poly1d(A_N))
-    """
-    w, h = freqz(np.flip(B_N.coef))
+    print(A_N)
+    w, h = freqz(np.flip(A_N.coef))
     plt.title('Equiripple filter frequency response')
     plt.plot(w, 20*np.log10(abs(h)), 'b')
     plt.ylabel('Amplitude [dB]', color='b')
     plt.xlabel('Frequency [rad/sample]')
     plt.show()
-    """
                  
 if __name__ == '__main__':
     main()
