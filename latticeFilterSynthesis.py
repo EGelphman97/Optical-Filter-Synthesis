@@ -1,9 +1,9 @@
 #Eric Gelphman
 #UC San Diego Department of Electrical and Computer Engineering
-#February 15, 2020
+#February 17, 2020
 
 #Implementation of Madsen and Zhao's Optical FIR Lattice Filter Design Algorithm
-#Version 1.0.6
+#Version 1.0.7
 
 import designFilter as dF
 import numpy as np
@@ -25,16 +25,19 @@ def calcUnitDelayLength(lamda_start, lamda_end, n_g):
     return L_U
 """
 Function to obtain the normalized angular frequency omega, 0 <= omega <= pi value from a given (continous-time) wavelength value lamda
-Parameters:  lamda0 = longest wavelength in range of interest, in m
-             lamda1 = shortest wavelength in range of interest, in m
-             lamda = wavelength you want to find normalized frequency for, in m
+Parameters:  lamda0 = longest wavelength in range of interest, in nm
+             lamda1 = shortest wavelength in range of interest, in nm
+             lamda = wavelength you want to find normalized frequency for, in nm
 Return: Normalized frequency omega, 0 <= omega <= pi
 """
 def convertToNormalizedFrequency(lamda0,lamda1, lamda):
     c = 3.0E8#The speed of light
-    f1 = c/lamda1
-    f0 = c/lamda0
-    f = c/lamda
+    lamda_0 = lamda0*(1.0E-9)
+    lamda_1 = lamda1*(1.0E-9)
+    lamda_ = lamda*(1.0E-9)
+    f1 = c/lamda_1
+    f0 = c/lamda_0
+    f = c/lamda_
     FSR = 2*(f1-f0)
     omega = (2.0*np.pi*f)/FSR
     return omega
@@ -97,20 +100,36 @@ Return: array of roots of B(z)
 def spectralFactorization(roots, order):
     b_roots = []
     for ii in range(roots.size):
+        #Assign min. phase roots to B(z)
         if np.abs(roots[ii]) < 1.0:
             b_roots.append(roots[ii])
+    print(len(b_roots))
     if len(b_roots) < order:#B(z)BR(z) has n roots, n is even, B(z) has n/2 roots, make sure B(z) has this many roots
-        #Assign minimum phase roots to B(z) as per Madsden and Zhao section 4.5 pg. 203-204
-        while len(b_roots) < order:
+        num_remaining = order - len(b_roots)
+        #identify real roots, even if they're not inside unit circle and add them to b_roots
+        for ii in range(roots.size):
+            if np.imag(roots[ii]) == 0.0 and b_roots.count(roots[ii]) == 0:
+                b_roots.append(roots[ii])
+                num_remaining = num_remaining - 1
+                if num_remaining == 0:
+                    break
+        #Just pick from roots until b_roots is of the correct size
+        if num_remaining > 0:
             for ii in range(roots.size):
                 if b_roots.count(roots[ii]) == 0:
                     b_roots.append(roots[ii])
-                    break
+                    num_remaining = num_remaining - 1
+                    if num_remaining == 0:
+                        break
+                    
+    #If there are too many min. phase roots     
     elif len(b_roots) > order:
         print("here")
         num_excess = len(b_roots) - order
         for ii in range(int(num_excess)):
-            reomoved = b_roots.pop()
+            removed = b_roots.pop()
+            print(str(removed))
+    print(np.array(b_roots))
     return np.array(b_roots)
 
 """
@@ -246,7 +265,95 @@ def fromKappasGetTransferFunction(kappas, phis):
     A_N_R = np.poly1d(np.conj(np.flip(A_N1.coef)))
     B_N_R = np.poly1d(np.conj(np.flip(B_N1.coef)))
     return A_N1, B_N1, A_N_R, B_N_R
-            
+
+#Function to recieve the necessary parameters from an input file to design the filter
+def receiveFilterParameters(filename):
+    file1 = open(filename, 'r+')
+    params = []
+    text = file1.readlines()
+    if len(text) < 10:
+        print("Error! Not Enough Input Parameters!")
+        exit()
+    line0 = text[0].strip('\n').split(':')
+    params.append(int(line0[1]))#Filter order N
+    line1 = text[1].strip('\n').split(':')
+    params.append(float(line1[1]))#Wavelength lamda_min, in nm
+    line2 = text[2].strip('\n').split(':')
+    params.append(float(line2[1]))#Wavelength lamda_max, in nm
+    line3 = text[3].strip('\n').split(':')
+    params.append(float(line3[1]))#Group index ng
+    line4 = text[4].strip('\n').split(':')
+    small_ls = line4[1].split(',')#l_c and l_end
+    params.append(float(small_ls[0]))#l_c
+    params.append(float(small_ls[1]))#l_end
+    line5 = text[5].strip('\n').split(':')
+    params.append(float(line5[1]))#L2
+    line6 = text[6].strip()
+    params.append(line6.strip('%\n'))#Pass or Stop, indicating filter type
+    line7 = text[7].strip('\n').split(':')
+    num_bands = int(line7[1])#Number of bands (1 or 2 for now)
+    params.append(num_bands)
+    if num_bands == 1:
+        line8 = text[8].strip('\n').split(":")
+        line8mod = line8[1].strip('[]').split(',')
+        params.append([float(line8mod[0]),float(line8mod[1])])
+    elif num_bands == 2:
+        line8 = text[8].strip('\n').split(":")
+        intervals = line8[1].split(';')
+        interval1 = intervals[0].strip('[]').split(',')
+        params.append([float(interval1[0]),float(interval1[1])])#Firsrt pass/stop band
+        interval2 = intervals[1].strip('[]').split(',')
+        params.append([float(interval2[0]),float(interval2[1])])
+    line9 = text[9].strip('\n').split(':')
+    params.append(float(line9[1]))#transition bandwidth
+    return params
+
+#Function to determine necessary values to plug into the filter design functions given the input parameters
+def processFilterParameters(params):
+    PI = np.pi
+    params = receiveFilterParameters("filterDesignParameters.txt")
+    N = params[0]
+    lamda_0 = params[2]#nm
+    lamda_1 = params[1]#nm
+    L_U = calcUnitDelayLength(lamda_1,lamda_0,params[3])
+    lc = params[4]
+    lend = params[5]
+    L2 = params[6]
+    bands = []#Passbands of multiband filter
+    n_bands = params[8]
+    if params[7] == "Pass":
+        lamda_p1 = params[9][0]
+        lamda_p2 = params[9][1]
+        omega_p1 = convertToNormalizedFrequency(lamda_0, lamda_1, lamda_p1)
+        omega_p2 = convertToNormalizedFrequency(lamda_0, lamda_1, lamda_p2)
+        bands.append((omega_p1,omega_p2,1.0))
+        if n_bands == 2:
+            lamda_p3 = params[10][0]
+            lamda_p4 = params[10][1]
+            omega_p3 = convertToNormalizedFrequency(lamda_0, lamda_1, lamda_p3)
+            omega_p4 = convertToNormalizedFrequency(lamda_0, lamda_1, lamda_p4)
+            bands.append((omega_p3,omega_p4,1.0))
+    elif params[7] == "Stop":
+        stopbands = []
+        lamda_s1 = params[9][0]
+        lamda_s2 = params[9][1]
+        omega_s1 = convertToNormalizedFrequency(lamda_0, lamda_1, lamda_s1)
+        omega_s2 = convertToNormalizedFrequency(lamda_0, lamda_1, lamda_s2)
+        stopbands.append((omega_s1,omega_s2))
+        if n_bands == 2:
+            lamda_s3 = params[10][0]
+            lamda_s4 = params[10][1]
+            omega_s3 = convertToNormalizedFrequency(lamda_0, lamda_1, lamda_s3)
+            omega_s4 = convertToNormalizedFrequency(lamda_0, lamda_1, lamda_s4)
+            stopbands.append((omega_s3,omega_s4))
+        bands = dF.obtainPassbandsFromStopbands(stopbands)#Need passbands to plug into filter design functions
+    t_width = 0.0
+    if n_bands == 1:
+        t_width = params[10]*PI
+    else:
+        t_width = params[11]*PI
+    return N, L_U, bands, t_width
+              
 
 #Function to write the layout paramters to a file
 def writeLayoutParametersToFile(kappalcs, L_U, filename, insertionLoss, order, method):
@@ -269,21 +376,30 @@ def writeLayoutParametersToFile(kappalcs, L_U, filename, insertionLoss, order, m
     
 def main():
     PI = np.pi
+    params = receiveFilterParameters("filterDesignParameters.txt")
+    N, L_U, bands, t_width = processFilterParameters(params)
+    A_N = dF.designFIRFilterKaiser(N, bands, t_width, plot=False)
+    print(A_N)
+        
+                
+        
+    """
+    PI = np.pi
     lamda_0 = 1565#nanometers
     lamda_1 = 1520#nanometers
     lamda_0 = lamda_0*(1E-03)#microns
     lamda_1 = lamda_1*(1E-03)#microns
     #bands = [(0.3*PI,0.45*PI,1.0)]
     bands = [(0.3*PI, 0.4*PI, 1.0), (0.65*PI, 0.75*PI,0.75)]
-    A_N, N = dF.designFIRFilterPMcC(24, 0.05*PI, bands, plot=True)
+    A_N, N = dF.designFIRFilterKaiser(35, 0.07*PI, bands, plot=True)
     #A_N = -1*A_N
     A_N = np.flip(A_N)#So indices match in numpy's poly1d  class
+    #Need highest degree term to be negative for synthesis algorithm to work, see Madsden and Zhao Section 4.5
     if A_N[0] > 0.0:
         A_N = -1.0*A_N
     A_z = np.poly1d(A_N)
     print(A_z)
     kappalcs, phis = synthesizeFIRLattice(A_z, N, lamda_0, lamda_1)
-    """
     N = 2
     A_N = np.poly1d([-0.25, 0.5*np.cos(PI/6.0), -0.25])
     A_z = np.poly1d(A_N)
@@ -295,7 +411,6 @@ def main():
     print(kappas)
     A_N, B_N, A_N_R, B_N_R = fromKappasGetTransferFunction(kappas, phis)
     print(np.poly1d(A_N))
-    """
     #L_U = calcUnitDelayLength(lamda_1, lamda_0, 5.5772)
     #insertionLoss = calcInsertionLoss(A_z, bands)
     #writeLayoutParametersToFile(kappalcs, L_U, "layoutParameters.txt", insertionLoss, N, "Parks-McClellan")
@@ -311,6 +426,7 @@ def main():
     plt.ylabel('Amplitude [dB]', color='b')
     plt.xlabel('Frequency [rad/sample]')
     plt.show()
+    """
                  
 if __name__ == '__main__':
     main()
