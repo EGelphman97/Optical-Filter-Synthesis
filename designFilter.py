@@ -1,18 +1,39 @@
 #Eric Gelphman
 #UC San Diego Department of Electrical and Computer Engineering
-#February 9, 2020
+#February 17, 2020
 
 """
 Python Script that has methods to obtain the transfer function H(z)
 Of digital filters as an array of coefficients. These coefs. will then be passed
 to latticeFilterSynthesis.py to determine the lattice parameters
-Version 1.0.3
+Version 1.0.4
 """
 
 import numpy as np
-from scipy.signal import kaiserord, firwin2, freqz, remez, firls
+from scipy.signal import kaiser_beta, firwin2, freqz, remez, firls
 import matplotlib.pyplot as plt
 
+"""
+Function to perform a boolean operation on a list of stopbands to get corresponding list of passbands
+Parameters: stopbands: list of tuples of corner (normalized) frequencies of stopbands
+            t_width:   transition bandwidth (normalized frequency)
+Return: list of tuples of passbands with corresponding gains
+"""
+def obtainPassbandsFromStopbands(stopbands, t_width):
+    passbands = []
+    if stopbands[0][0] == 0.0:
+        if len(stopbands) == 1:
+            passbands.append((stopbands[0][1]+t_width, np.pi, 1.0))
+    else:
+        passbands.append((0.0, stopbands[0][0]-t_width, 1.0))
+        if stopbands[0][1] != np.pi and len(stopbands) == 1:
+            passbands.append((stopbands[0][1]+t_width, np.pi, 1.0))
+    if len(stopbands) == 2:
+        passbands.append((stopbands[0][1]+t_width,stopbands[1][0]-t_width, 1.0))
+        if stopbands[1][1] != np.pi:
+            passbands.append((stopbands[1][1]+t_width, np.pi, 1.0))
+    return passbands
+            
 """
 Function to determine the coefficients of a multiband FIR filter with corresponding passbands and gains using a Kaiser window
 
@@ -24,10 +45,10 @@ Parameters:   ripple: max. deviation in dB of the realized filter's frequnecy re
 Return:       coefs: ndarray which holds filter coeffients, index refers to power of z^-1
               order: order of filter 
 """
-def designFIRFilterKaiser(ripple, t_width, bands, plot=True):
+def designFIRFilterKaiser(N, bands, t_width, plot=True):
     PI = np.pi
-    #t_width = determine t_width()
-    n_coefs, beta = kaiserord(ripple, t_width)#Determine order and paramter beta of Kaiser window
+    A = 2.285*t_width*N + 8.0#Attenuation in dB
+    beta = kaiser_beta(A)#Determine parameter beta of Kaiser window
     freq = []#Frequency points
     gain = []#Gain of filter at frequency points in freq
     
@@ -50,11 +71,9 @@ def designFIRFilterKaiser(ripple, t_width, bands, plot=True):
     if PI not in freq:
         freq.append(PI)
         gain.append(0.0)
-    #print(np.array(freq))
-    #print(np.array(gain))
     
     #Design the filter
-    coefs = firwin2(n_coefs, freq, gain, window=('kaiser',beta), nyq=PI)
+    coefs = firwin2(N+1, freq, gain, window=('kaiser',beta), nyq=PI)
     
     if plot:
         w, h = freqz(coefs)
@@ -63,8 +82,7 @@ def designFIRFilterKaiser(ripple, t_width, bands, plot=True):
         plt.ylabel('Amplitude [dB]', color='b')
         plt.xlabel('Frequency [rad/sample]')
         plt.show()
-    order = n_coefs - 1
-    return coefs, order
+    return coefs
 
 """
 Function to determine the coefficients of a multiband equiripple FIR filter with corresponding passbands and gains using the Parks-McClellan algorithm,
@@ -104,8 +122,6 @@ def designFIRFilterPMcC(order, t_width, bands, plot=True):
             weight.append(10.0)
         else:
             weight.append(1.0)
-    print(gain)
-    print(weight)
 
     #Design the filter
     coefs = remez(order+1, freq, gain, weight, fs=2.0*PI)
@@ -154,8 +170,6 @@ def designFIRFilterLS(order, t_width, bands, plot=True):
     if PI not in freq:
         freq.append(PI)
         gain.append(0.0)
-    print(np.array(freq))
-    print(np.array(gain))
 
     for ii in range(len(gain)):
         if ii % 2 == 0:
@@ -176,15 +190,15 @@ def designFIRFilterLS(order, t_width, bands, plot=True):
     order = coefs.size - 1
     return coefs, order
     
-
-"""
 def main():
     PI = np.pi
-    bands = [(0.3*PI, 0.4*PI, 1.0), (0.6*PI, 0.75*PI,0.75)]
-    coefs, n_coefs = designFIRFilterPMcC(50, 0.05*PI, bands)
-    print(n_coefs)
+    stopbands = [(0.0, 0.2*PI, 1.0), (0.7*PI, PI, 1.0)]
+    passbands = obtainPassbandsFromStopbands(stopbands, 0.05*PI)
+    for band in passbands:
+        print(np.array(band))
+    #coefs, n_coefs = designFIRFilterPMcC(50, 0.05*PI, bands)
+    #print(n_coefs)
     
 
 if __name__ == '__main__':
     main()
-"""
