@@ -3,7 +3,7 @@
 #February 17, 2020
 
 #Implementation of Madsen and Zhao's Optical FIR Lattice Filter Design Algorithm
-#Version 1.0.7
+#Version 1.0.8
 
 import designFilter as dF
 import numpy as np
@@ -202,7 +202,6 @@ Return: kappalcs: List of power coupling coefficients kappa_n's, Lc's and lc + l
 """
 def synthesizeFIRLattice(A_N, N, lamda_0, lamda_1):
     gamma = 1.0
-    phi_total = 0.0
     B_N = findBPoly(A_N)
     phi_l = []#List of phi_n's
     kappalcs = []#List of kappas, Lc's, s_n's, c_n's. This is what we want to return
@@ -218,12 +217,20 @@ def synthesizeFIRLattice(A_N, N, lamda_0, lamda_1):
         if n > 0:
             B_N1_arr = np.polyadd(-s_n*A_N,c_n*B_N)#Step-down recursion relation for B polynomial of stage N-1, this is an ndArray
             B_N1 = np.poly1d(B_N1_arr[1:B_N1_arr.size])#Reduce order by 1
+            #Shouldn't have complex coefs.
+            for ii in range(B_N1.coef.size):
+                if np.imag(B_N1.coef[ii]) < 3.0E-16:
+                    B_N1.coef[ii] = np.real(B_N1.coef[ii])
             A_N1_tild = np.polyadd(c_n*A_N,s_n*B_N)
             #print(np.poly1d(A_N1_tild))
             phi_n = -(np.angle(A_N1_tild[0]) + np.angle(B_N1.coef[0]))
             phi_l.insert(0,phi_n)
             A_N1_tild = np.exp(1j*phi_n)*A_N1_tild
             A_N1 = np.poly1d(A_N1_tild[0:A_N1_tild.size-1])#Build polynomial A_N1(z), and reduce order by 1 by eliminating the constant term(multiplying by z)
+            #Shouldn't have complex coefs.
+            for ii in range(A_N1.coef.size):
+                if np.imag(A_N1.coef[ii]) < 3.0E-16:
+                    A_N1.coef[ii] = np.real(A_N1.coef[ii])
         n = n - 1
         A_N = A_N1
         B_N = B_N1
@@ -254,9 +261,9 @@ def fromKappasGetTransferFunction(kappas, phis):
         #B_N = np.polyadd(np.polymul(np.poly1d(poly3arr),A_N_1),np.poly1d(poly4arr))
         #Shouldn't have complex coefs.
         for ii in range(A_N.coef.size):
-            if np.imag(A_N.coef[ii]) < 1.5E-16:
+            if np.imag(A_N.coef[ii]) < 2.0E-16:
                 A_N.coef[ii] = np.real(A_N.coef[ii])
-            if np.imag(B_N.coef[ii]) < 1.5E-16:
+            if np.imag(B_N.coef[ii]) < 2.0E-16:
                 B_N.coef[ii] = np.real(B_N.coef[ii])
 
         A_N1 = A_N
@@ -265,6 +272,42 @@ def fromKappasGetTransferFunction(kappas, phis):
     A_N_R = np.poly1d(np.conj(np.flip(A_N1.coef)))
     B_N_R = np.poly1d(np.conj(np.flip(B_N1.coef)))
     return A_N1, B_N1, A_N_R, B_N_R
+
+def synthesizeARLattice(A_N, N, big_gamma, little_gamma)
+    B_N = findBPoly(A_N)
+    phis = []#List of phi_n's
+    kappas = []#List of kappas
+    n = N
+    while n >= 0:
+        #print(A_N)
+        #print(B_N)
+        kappa = calcPowerCouplingRatio(A_N,B_N)#Find kappa
+        c_n = np.sqrt(1.0-kappa)
+        s_n = np.sqrt(kappa)
+        kappas.insert(0,kappa)
+        if n > 0:
+            B_N1_arr = (1.0/kappa)*np.polyadd(A_N,-c_n*B_N)#Step-down recursion relation for B polynomial of stage N-1, this is an ndArray
+            B_N1 = np.poly1d(B_N1_arr[1:B_N1_arr.size])#Reduce order by 1
+            #Shouldn't have complex coefs.
+            for ii in range(B_N1.coef.size):
+                if np.imag(B_N1.coef[ii]) < 3.0E-16:
+                    B_N1.coef[ii] = np.real(B_N1.coef[ii])
+            A_N1_tild = np.polyadd(c_n*A_N,s_n*B_N)
+            #print(np.poly1d(A_N1_tild))
+            phi_n = -(np.angle(A_N1_tild[0]) + np.angle(B_N1.coef[0]))
+            phi_l.insert(0,phi_n)
+            A_N1_tild = np.exp(1j*phi_n)*A_N1_tild
+            A_N1 = np.poly1d(A_N1_tild[0:A_N1_tild.size-1])#Build polynomial A_N1(z), and reduce order by 1 by eliminating the constant term(multiplying by z)
+            #Shouldn't have complex coefs.
+            for ii in range(A_N1.coef.size):
+                if np.imag(A_N1.coef[ii]) < 3.0E-16:
+                    A_N1.coef[ii] = np.real(A_N1.coef[ii])
+        n = n - 1
+        A_N = A_N1
+        B_N = B_N1
+    return kappalcs, phi_l
+    
+    
 
 #Function to recieve the necessary parameters from an input file to design the filter
 def receiveFilterParameters(filename):
@@ -376,41 +419,44 @@ def writeLayoutParametersToFile(kappalcs, L_U, filename, insertionLoss, order, m
     
 def main():
     PI = np.pi
+    """
     params = receiveFilterParameters("filterDesignParameters.txt")
     N, L_U, bands, t_width = processFilterParameters(params)
     A_N = dF.designFIRFilterKaiser(N, bands, t_width, plot=False)
+    if A_N[0] > 0.0:
+        A_N = -1.0*A_N
     print(A_N)
-        
-                
-        
-    """
-    PI = np.pi
+    """    
     lamda_0 = 1565#nanometers
     lamda_1 = 1520#nanometers
     lamda_0 = lamda_0*(1E-03)#microns
     lamda_1 = lamda_1*(1E-03)#microns
     #bands = [(0.3*PI,0.45*PI,1.0)]
-    bands = [(0.3*PI, 0.4*PI, 1.0), (0.65*PI, 0.75*PI,0.75)]
-    A_N, N = dF.designFIRFilterKaiser(35, 0.07*PI, bands, plot=True)
-    #A_N = -1*A_N
+    bands = [(0.3*PI, 0.4*PI, 1.0), (0.7*PI, 0.8*PI,1.0)]
+    N = 17
+    A_N, order = dF.designFIRFilterKaiser(N, bands, 0.05*PI, plot=False)
+    N = order
     A_N = np.flip(A_N)#So indices match in numpy's poly1d  class
     #Need highest degree term to be negative for synthesis algorithm to work, see Madsden and Zhao Section 4.5
     if A_N[0] > 0.0:
         A_N = -1.0*A_N
     A_z = np.poly1d(A_N)
     print(A_z)
+    """
     kappalcs, phis = synthesizeFIRLattice(A_z, N, lamda_0, lamda_1)
     N = 2
     A_N = np.poly1d([-0.25, 0.5*np.cos(PI/6.0), -0.25])
     A_z = np.poly1d(A_N)
     print(A_z)
+    """
     kappalcs, phis = synthesizeFIRLattice(A_z, N, lamda_0, lamda_1)
     kappas = np.zeros(len(kappalcs))
     for ii in range(len(kappalcs)):
         kappas[ii] = kappalcs[ii][0]
-    print(kappas)
+    #print(kappas)
     A_N, B_N, A_N_R, B_N_R = fromKappasGetTransferFunction(kappas, phis)
     print(np.poly1d(A_N))
+    """
     #L_U = calcUnitDelayLength(lamda_1, lamda_0, 5.5772)
     #insertionLoss = calcInsertionLoss(A_z, bands)
     #writeLayoutParametersToFile(kappalcs, L_U, "layoutParameters.txt", insertionLoss, N, "Parks-McClellan")
