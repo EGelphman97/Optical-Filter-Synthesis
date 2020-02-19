@@ -10,7 +10,7 @@ Version 1.0.4
 """
 
 import numpy as np
-from scipy.signal import kaiser_beta, firwin2, freqz, remez, firls
+from scipy.signal import kaiser_beta, kaiserord, firwin2, freqz, remez, firls
 import matplotlib.pyplot as plt
 
 """
@@ -45,10 +45,9 @@ Parameters:   ripple: max. deviation in dB of the realized filter's frequnecy re
 Return:       coefs: ndarray which holds filter coeffients, index refers to power of z^-1
               order: order of filter 
 """
-def designFIRFilterKaiser(N, bands, t_width, plot=True):
+def designFIRFilterKaiser(ripple, bands, t_width, plot=True):
     PI = np.pi
-    A = 2.285*t_width*N + 8.0#Attenuation in dB
-    beta = kaiser_beta(A)#Determine parameter beta of Kaiser window
+    num_coefs, beta = kaiserord(ripple, t_width)#Determine parameter beta of Kaiser window
     freq = []#Frequency points
     gain = []#Gain of filter at frequency points in freq
     
@@ -73,7 +72,7 @@ def designFIRFilterKaiser(N, bands, t_width, plot=True):
         gain.append(0.0)
     
     #Design the filter
-    coefs = firwin2(N+1, freq, gain, window=('kaiser',beta), nyq=PI)
+    coefs = firwin2(num_coefs, freq, gain, window=('kaiser',beta), nyq=PI)
     
     if plot:
         w, h = freqz(coefs)
@@ -82,7 +81,8 @@ def designFIRFilterKaiser(N, bands, t_width, plot=True):
         plt.ylabel('Amplitude [dB]', color='b')
         plt.xlabel('Frequency [rad/sample]')
         plt.show()
-    return coefs
+    order = num_coefs - 1
+    return coefs, order
 
 """
 Function to determine the coefficients of a multiband equiripple FIR filter with corresponding passbands and gains using the Parks-McClellan algorithm,
