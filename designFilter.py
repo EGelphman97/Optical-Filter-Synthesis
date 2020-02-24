@@ -1,12 +1,12 @@
 #Eric Gelphman
 #UC San Diego Department of Electrical and Computer Engineering
-#February 17, 2020
+#February 23, 2020
 
 """
 Python Script that has methods to obtain the transfer function H(z)
 Of digital filters as an array of coefficients. These coefs. will then be passed
 to latticeFilterSynthesis.py to determine the lattice parameters
-Version 1.0.4
+Version 1.0.5
 """
 
 import numpy as np
@@ -33,6 +33,29 @@ def obtainPassbandsFromStopbands(stopbands, t_width):
         if stopbands[1][1] != np.pi:
             passbands.append((stopbands[1][1]+t_width, np.pi, 1.0))
     return passbands
+
+"""
+Function to obtain the bands(pass or stop) from the center (normalized) frequencies
+Parameters: center_freqs: ndarray of center frequencies, lowest frequency is in position 0 of array
+            bandwidth:    desired width of pass (or stop) band
+            typef:        string that indicates type of filter, this parameter is either "Pass" or "Stop"
+Return: List of tuples representing band (normalized) frequency intervals
+"""
+def obtainBandsFromCenterFreqs(center_freqs, bandwidth, typef):
+    bands = []
+    if typef == "Pass":
+        for ii in range(center_freqs.size):
+            omega_l = center_freqs[ii] - (bandwidth/2.0)
+            omega_u = center_freqs[ii] - (bandwidth/2.0)
+            bands.append((omega_l, omega_u, 1.0))
+    else:
+        stopbands = []
+        for ii in range(center_freqs.size):
+            omega_l = center_freqs[ii] - (bandwidth/2.0)
+            omega_u = center_freqs[ii] - (bandwidth/2.0)
+            stopbands.append((omega_l, omega_u))
+            bands = obtainPassBandsFromStopbands(stopbands, 0.1*np.pi)
+    return bands
             
 """
 Function to determine the coefficients of a multiband FIR filter with corresponding passbands and gains using a Kaiser window
@@ -189,7 +212,29 @@ def designFIRFilterLS(order, t_width, bands, plot=True):
         plt.show()
     order = coefs.size - 1
     return coefs, order
-    
+
+"""
+Function to iteratively design a FIR/MA filter using the Kaiser window method
+Parameters: N_max: Maximum orderder allowed for filter
+            center_freqs: Center (normalized) frequencies of the pass (or stop) bands, lower frequency is in index 0
+            bands: List of tuples representing passband intervals, in units of normalized frequency
+Return: A_N: coefficent array for filter, coef. of Z^-N term is in position 0 in array
+          N: Filter order
+"""
+def designKaiserIter(N_max, center_freqs, bands):
+    max_twidth = (center_freqs[1]-center_freqs[0])/4.0
+    atten = 50#Try for 50 dB extinction in stopband
+    t_width = (center_freqs[1]-center_freqs[0])/8.0
+    A_N, N = designFIRFilterKaiser(atten, bands, t_width, plot=False)
+    while N > N_max:
+        if t_width < max_twidth:
+            t_width = 2.0*t_width
+            A_N, N = designFIRFilterKaiser(atten, bands, t_width, plot=False)
+        else:
+            atten = atten - 5.0
+            A_N, N = designFIRFilterKaiser(atten, bands, t_width, plot=False)
+    return np.flip(A_N), N
+         
 def main():
     PI = np.pi
     stopbands = [(0.0, 0.2*PI, 1.0), (0.7*PI, PI, 1.0)]

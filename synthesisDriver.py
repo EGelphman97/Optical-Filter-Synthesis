@@ -1,10 +1,10 @@
 """
 Eric Gelphman
 UC San Diego Department of Electrical and Computer Engineering
-February 18, 2020
+February 23, 2020
 
 Driver program for lattice filter synthesis
-Version 1.0.0
+Version 1.0.1
 """
 
 import designFilter as dF
@@ -75,130 +75,59 @@ def receiveFilterParameters(filename):
     file1 = open(filename, 'r+')
     params = []
     text = file1.readlines()
-    if len(text) < 11:
+    if len(text) < 14:
         print("Error! Not Enough Input Parameters!")
         exit()
-    line0 = text[0].strip('\n').split(':')
-    method = line0[1].strip()
-    if method == "Kaiser" or method == "Parks-McClellan":
-        params.append(method)#Filter design method
-    else:
-        print("Error! Input Kaiser or Parks-McClellan for filter design method")
-    line1 = text[1].strip('\n').split(':')
-    params.append(float(line1[1]))#Wavelength lamda_min, in nm
-    line2 = text[2].strip('\n').split(':')
-    params.append(float(line2[1]))#Wavelength lamda_max, in nm
-    line3 = text[3].strip('\n').split(':')
-    params.append(float(line3[1]))#Group index ng
-    line4 = text[4].strip('\n').split(':')
-    small_ls = line4[1].split(',')#l_c and l_end
-    params.append(float(small_ls[0]))#l_c
-    params.append(float(small_ls[1]))#l_end
-    line5 = text[5].strip('\n').split(':')
-    params.append(float(line5[1]))#L2
-    line6 = text[6].strip()
-    params.append(line6.strip('%\n'))#Pass or Stop, indicating filter type
-    line7 = text[7].strip('\n').split(':')
-    num_bands = int(line7[1])#Number of bands (1 or 2 for now)
+    params.append(float(text[7]))#Group index n_g
+    line8 = text[8].strip('\n').split(',')
+    params.append(float(line8[0]))#l_c
+    params.append(float(line8[1]))#l_end
+    params.append(float(text[9]))#L_2
+    line10 = text[10].strip()
+    params.append(line10.strip('%\n'))#Pass or Stop, indicating filter type
+    num_bands = int(text[11])#Number of bands (1 or 2 for now)
     params.append(num_bands)
     if num_bands == 1:
-        line8 = text[8].strip('\n').split(":")
-        line8mod = line8[1].strip('[]').split(',')
-        params.append([float(line8mod[0]),float(line8mod[1])])
+        params.append(float(text[12]))
     elif num_bands == 2:
-        line8 = text[8].strip('\n').split(":")
-        intervals = line8[1].split(';')
-        interval1 = intervals[0].strip('[]').split(',')
-        params.append([float(interval1[0]),float(interval1[1])])#Firsrt pass/stop band
-        interval2 = intervals[1].strip('[]').split(',')
-        params.append([float(interval2[0]),float(interval2[1])])
-    line9 = text[9].strip('\n').split(':')
-    params.append(float(line9[1]))#transition bandwidth
-    line10 = text[10].strip('\n').split(':')
-    if method == 'Kaiser':
-        params.append(float(line10[1]))#Attenuation in dB
-    else:
-        params.append(int(line10[1]))#Filter order
+        line12 = text[12].strip('\n').split(',')
+        params.append(float(line12[0]))#First center wavelength
+        params.append(float(line12[1]))
+    params.append(float(text[13]))#Max. filter order
     return params
 
 #Function to determine necessary values to plug into the filter design functions given the input parameters
 def processFilterParameters(params):
     PI = np.pi
     params = receiveFilterParameters("filterDesignParameters.txt")
-    method = params[0]
-    lamda_0 = params[2]#nm
-    lamda_1 = params[1]#nm
-    print(method)
+    lamda_0 = 1565#nm
+    lamda_1 = 1520#nm
     print(str(lamda_0))
     print(str(lamda_1))
-    L_U = calcUnitDelayLength(lamda_1,lamda_0,params[3])
-    lc = params[4]
+    L_U = calcUnitDelayLength(lamda_1,lamda_0,params[0])
+    lc = params[1]
     print(str(lc))
-    lend = params[5]
+    lend = params[2]
     print(str(lend))
-    L2 = params[6]
+    L2 = params[3]
     print(str(L2))
-    
+    filter_type = params[4]#Pass or Stop
+    print(filter_type)
     bands = []#Passbands of multiband filter
-    n_bands = params[8]
-    
-    #Determine transition bandwidth
+    n_bands = params[5]
+    center_freqs = np.zeros(1)
+    max_order = 0.0
     if n_bands == 1:
-        omega_prime = convertToNormalizedFrequency(lamda_0, lamda_1, params[9][1]-params[10])
+        center_freqs[0] = convertToNormalizedFrequency(lamda_0, lamda_1, params[6])
+        max_order = params[7]
     else:
-        omega_prime = convertToNormalizedFrequency(lamda_0, lamda_1, params[9][1]-params[11])
-    t_width = omega_prime - convertToNormalizedFrequency(lamda_0, lamda_1, params[9][1])#Transition bandwidth = passband_edge + t_width - passband_edge
-    print(str(t_width))
-    
-    if params[7] == "Pass":
-        lamda_p1 = params[9][0]
-        lamda_p2 = params[9][1]
-        omega_p1 = convertToNormalizedFrequency(lamda_0, lamda_1, lamda_p1)
-        omega_p2 = convertToNormalizedFrequency(lamda_0, lamda_1, lamda_p2)
-        bands.append((omega_p1,omega_p2,1.0))
-        if n_bands == 2:
-            lamda_p3 = params[10][0]
-            lamda_p4 = params[10][1]
-            omega_p3 = convertToNormalizedFrequency(lamda_0, lamda_1, lamda_p3)
-            omega_p4 = convertToNormalizedFrequency(lamda_0, lamda_1, lamda_p4)
-            bands.append((omega_p3,omega_p4,1.0))
-    elif params[7] == "Stop":
-        stopbands = []
-        lamda_s1 = params[9][0]
-        lamda_s2 = params[9][1]
-        omega_s1 = convertToNormalizedFrequency(lamda_0, lamda_1, lamda_s1)
-        omega_s2 = convertToNormalizedFrequency(lamda_0, lamda_1, lamda_s2)
-        stopbands.append((omega_s1,omega_s2))
-        if n_bands == 2:
-            lamda_s3 = params[10][0]
-            lamda_s4 = params[10][1]
-            omega_s3 = convertToNormalizedFrequency(lamda_0, lamda_1, lamda_s3)
-            omega_s4 = convertToNormalizedFrequency(lamda_0, lamda_1, lamda_s4)
-            stopbands.append((omega_s3,omega_s4))
-        bands = dF.obtainPassbandsFromStopbands(stopbands, t_width)#Need passbands to plug into filter design functions
-    for ii in range(len(bands)):
-        print("[" + str(bands[ii][0]) + "," + str(bands[ii][1]) + "]" + "\n")
-    spec = 0.0
-    if method == "Kaiser":
-        if n_bands == 1:
-            spec = params[11]
-        else:
-            spec = params[12]
-    else:
-        if n_bands == 1:
-            spec = int(params[11])
-        else:
-            spec = int(params[12])
-    print(str(spec))
-    return method, L_U, bands, t_width, spec
-
-#Function to choose the appropriate filter design method once the imputs have been processed
-def designOpticalFilter(method, bands, t_width, spec):
-    if method == "Kaiser":
-        return dF.designFIRFilterKaiser(spec, bands, t_width, plot=False)
-    else:
-        return dF.designFIRFilterPMcC(spec, t_width, bands, plot=False)
-              
+        omega_c1 = convertToNormalizedFrequency(lamda_0, lamda_1, params[6])
+        omega_c2 = convertToNormalizedFrequency(lamda_0, lamda_1, params[7])
+        center_freqs = np.array([omega_c1, omega_c2])
+        max_order = params[8]
+    print(center_freqs)
+    print(str(max_order))
+    return L_U, filter_type, center_freqs             
 
 #Function to write the layout paramters to a file
 def writeLayoutParametersToFile(kappalcs, phis, L_U, L_2, filename, insertionLoss, order, method):
@@ -212,18 +141,16 @@ def writeLayoutParametersToFile(kappalcs, phis, L_U, L_2, filename, insertionLos
     file1.write("Loss Coefficient Gamma per Stage: " + str(gamma) + "\n")
     #file1.write("Overall Gamma: " + str(float(order*gamma)) + "\n")
     for ii in range(len(kappalcs)):#Write parameters to file
-        if ii != 0 and ii < 10:
-            file1.write(f"% Stage {ii}  : kappa: {kappalcs[ii][0]:.6e} L_c: {kappalcs[ii][1]:.6e} um  phi: {phis[ii-1]:6f} \n")
-        elif ii >= 10:
-            file1.write(f"% Stage {ii} : kappa: {kappalcs[ii][0]:.6e} L_c: {kappalcs[ii][1]:.6e} um  phi: {phis[ii-1]:6f} \n")
+        if ii != 0:
+            file1.write(f"%{kappalcs[ii][0]:.6e},{kappalcs[ii][1]:.6e},{phis[ii-1]:6f}\n")
         else:
-            file1.write(f"% Stage {ii}: kappa: {kappalcs[ii][0]:.6e} L_c: {kappalcs[ii][1]:.6e} um \n")
+            file1.write(f"%{kappalcs[ii][0]:.6e},{kappalcs[ii][1]:.6e}\n")
     file1.close()#close file
 
 def main():
     PI = np.pi
     params = receiveFilterParameters("filterDesignParameters.txt")
-    method, L_U, bands, t_width, spec = processFilterParameters(params)
+    L_U, filter_type, center_freqs = processFilterParameters(params)
     """
     A_N, N = designOpticalFilter(method, bands, t_width, spec)
     if A_N[0] > 0.0:

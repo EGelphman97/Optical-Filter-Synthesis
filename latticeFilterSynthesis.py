@@ -273,40 +273,47 @@ def main():
     PI = np.pi
     lamda_0 = 1565#nanometers
     lamda_1 = 1520#nanometers
-    lamda_0 = lamda_0*(1E-03)#microns
-    lamda_1 = lamda_1*(1E-03)#microns
     #bands = [(0.3*PI,0.45*PI,1.0)]
-    bands = [(0.3*PI, 0.4*PI, 1.0), (0.7*PI, 0.8*PI,1.0)]
-    A_N, order = dF.designFIRFilterKaiser(40, bands, 0.05*PI, plot=True)
-    N = order
-    A_N = np.flip(A_N)#So indices match in numpy's poly1d  class
+    #bands = [(0.3*PI, 0.4*PI, 1.0), (0.7*PI, 0.8*PI,1.0)]
+    #A_N, order = dF.designFIRFilterKaiser(50, bands, 0.05*PI, plot=True)
+    #A_N = np.flip(A_N)#So indices match in numpy's poly1d  class
+    center_l1 = 1532
+    center_l2 = 1550
+    omega_c1 = sD.convertToNormalizedFrequency(lamda_0, lamda_1, center_l2)
+    omega_c2 = sD.convertToNormalizedFrequency(lamda_0, lamda_1, center_l1)
+    center_freqs = np.array([omega_c1, omega_c2])
+    print(center_freqs)
+    bandwidth = 0.1*np.pi
+    
+    max_t = (omega_c2 - omega_c1)/4.0#max. transition bandwidth, in units of normalized frequency
+    #Need to make sure there are no issues with choice of pass/stop bandwidth
+    while omega_c1 - (bandwidth/2.0) < 0.0 or omega_c2 + (bandwidth/2.0) > np.pi or ((omega_c2 - (bandwidth/2.0) - max_t) - (omega_c1 + (bandwidth/2.0) + max_t)) < 0.0:
+        bandwidth = bandwidth/2.0
+    
+    print(bandwidth)
+    
+    bands = dF.obtainBandsFromCenterFreqs(center_freqs, bandwidth, "Pass")
+    A_N, N = dF.designKaiserIter(20, center_freqs, bands)
     #Need highest degree term to be negative for synthesis algorithm to work, see Madsden and Zhao Section 4.5
     if A_N[0] > 0.0:
         A_N = -1.0*A_N
     A_z = np.poly1d(A_N)
     print(A_z)
     
-    """
-    N = 2
-    A_N = np.poly1d([0.81, -1.5588, 1.0])
-    A_z = np.poly1d(A_N)
-    print(A_z)
-    kappas, phis = synthesizeARLattice(A_z, N, 1.0, 1.0)
-    print(kappas)
-    A_N, B_N = inverseARSynthesis(np.array(kappas), phis, 1.0)
-    print(np.poly1d(A_N))
-    """
+    
     L_U = sD.calcUnitDelayLength(lamda_1, lamda_0, 4.0)
     insertionLoss = sD.calcInsertionLoss(A_z, bands)
     kappalcs, phis = synthesizeFIRLattice(A_N, N, lamda_0, lamda_1)
     sD.writeLayoutParametersToFile(kappalcs, phis, L_U, 25.0, "layoutParameters.txt", insertionLoss, N, "Kaiser")
+    """
     kappas = np.zeros(len(kappalcs))
     #print(np.array(phis))
     for ii in range(len(kappalcs)):
         kappas[ii] = kappalcs[ii][0]
     A_N, B_N, A_N_R, B_N_R = inverseFIRSynthesis(kappas, phis)
     print(np.poly1d(A_N))
-    w, h = freqz(np.flip(A_N))
+    """
+    w, h = freqz(A_N)
     c = 3.0E8
     f1 = c/lamda_1
     f0 = c/lamda_0
