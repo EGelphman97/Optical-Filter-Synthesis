@@ -1,12 +1,12 @@
 #Eric Gelphman
 #UC San Diego Department of Electrical and Computer Engineering
-#February 23, 2020
+#February 29, 2020
 
 """
 Python Script that has methods to obtain the transfer function H(z)
 Of digital filters as an array of coefficients. These coefs. will then be passed
 to latticeFilterSynthesis.py to determine the lattice parameters
-Version 1.0.5
+Version 1.0.6
 """
 
 import numpy as np
@@ -46,15 +46,21 @@ def obtainBandsFromCenterFreqs(center_freqs, bandwidth, typef):
     if typef == "Pass":
         for ii in range(center_freqs.size):
             omega_l = center_freqs[ii] - (bandwidth/2.0)
-            omega_u = center_freqs[ii] - (bandwidth/2.0)
+            omega_u = center_freqs[ii] + (bandwidth/2.0)
             bands.append((omega_l, omega_u, 1.0))
     else:
         stopbands = []
         for ii in range(center_freqs.size):
             omega_l = center_freqs[ii] - (bandwidth/2.0)
-            omega_u = center_freqs[ii] - (bandwidth/2.0)
+            omega_u = center_freqs[ii] + (bandwidth/2.0)
             stopbands.append((omega_l, omega_u))
-            bands = obtainPassBandsFromStopbands(stopbands, 0.1*np.pi)
+        #Determine max. t_width
+        max_difference = 0.0
+        for ii in range(len(stopbands)-1):
+            diff = stopbands[ii+1][0]-stopbands[ii][1]
+            if diff > max_difference:
+                max_difference = diff
+        bands = obtainPassbandsFromStopbands(stopbands, max_difference/4.0)
     return bands
             
 """
@@ -224,11 +230,13 @@ Return: A_N: coefficent array for filter, coef. of Z^-N term is in position 0 in
 def designKaiserIter(N_max, center_freqs, bands):
     max_twidth = (center_freqs[1]-center_freqs[0])/4.0
     atten = 50#Try for 50 dB extinction in stopband
-    t_width = (center_freqs[1]-center_freqs[0])/8.0
+    passband_gap = bands[1][0] - bands[0][1]#Define max. transition width in terms of gap between passbands
+    max_twidth = passbandgap/4.0
+    t_width = max_twidth/5.0
     A_N, N = designFIRFilterKaiser(atten, bands, t_width, plot=False)
     while N > N_max:
         if t_width < max_twidth:
-            t_width = 2.0*t_width
+            t_width = 1.3*t_width
             A_N, N = designFIRFilterKaiser(atten, bands, t_width, plot=False)
         else:
             atten = atten - 5.0

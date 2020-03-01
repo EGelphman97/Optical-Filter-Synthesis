@@ -1,10 +1,10 @@
 """
 Eric Gelphman
 UC San Diego Department of Electrical and Computer Engineering
-February 23, 2020
+February 29, 2020
 
 Driver program for lattice filter synthesis
-Version 1.0.1
+Version 1.0.2
 """
 
 import designFilter as dF
@@ -14,7 +14,7 @@ from scipy import integrate
 from scipy.signal import freqz
 import matplotlib.pyplot as plt
 
-
+    
 """
 Function to calculate the unit delay length of the filter
 Parameters: lamda_start = smallest wavelength in range of interest, in nm
@@ -45,6 +45,39 @@ def convertToNormalizedFrequency(lamda0, lamda1, lamda):
     f = c/lamda_
     omega = np.pi*(f-f0)/(f1-f0)
     return omega
+
+"""
+Function to obtain the endpoints of the wavelength interval of interest given the center wavelengths
+Parameters: center_wavelengths: ndarray of center wavelengths (for now, at most 2)
+Return: lambda0: longest wavelength (smallest frequency) in interval of interest
+        lambda1: smallest wavelength (largest frequency) in interval of interest
+"""
+def determineWavelengthEndpoints(center_wvlengths):
+    lambda0 = 1565#nm
+    lambda1 = 1520#nm
+    PI = np.pi
+    n_bands = center_wvlengths.size
+    if n_bands == 1:
+        lambda0 = center_wvlengths[0] + 23
+        lambda1 = center_wvlengths[0] - 23
+    else:
+        lambda0 = center_wvlengths[0] + 20
+        lambda1 = center_wvlengths[1] - 20
+        omega_1 = convertToNormalizedFrequency(lambda0, lambda1, center_wvlengths[0])
+        omega_2 = convertToNormalizedFrequency(lambda0, lambda1, center_wvlengths[1])
+        max_twidth = (omega_2-(0.05*PI))-(omega_1+(0.05*PI))/4.0
+        omega1 = omega_1 - (0.05*PI) - (max_twidth/2.0)
+        omega2 = omega_2 + (0.05*PI) + (max_twidth/2.0)
+        while omega1 < 0.05*PI or omega2 > 0.95*PI:
+            lambda0 = lambda0 + 3
+            lambda1 = lambda1 - 3
+            omega_1 = convertToNormalizedFrequency(lambda0, lambda1, center_wvlengths[0])
+            omega_2 = convertToNormalizedFrequency(lambda0, lambda1, center_wvlengths[1])
+            max_twidth = (omega_2-(0.05*PI))-(omega_1+(0.05*PI))/4.0
+            omega1 = omega_1 - (0.05*PI) - (max_twidth/2.0)
+            omega2 = omega_2 + (0.05*PI) + (max_twidth/2.0)
+    return lambda0, lambda1        
+        
 
 #Function to calculate max. passband attenuation/passband insertion loss
 #A_N is the transfer function of the FIR filter as a numpy poly1d object
@@ -96,38 +129,48 @@ def receiveFilterParameters(filename):
     params.append(float(text[13]))#Max. filter order
     return params
 
-#Function to determine necessary values to plug into the filter design functions given the input parameters
+"""
+Function to determine necessary values to plug into the filter design functions given the input parameters
+Paramters: params: Formatted list of values read from file
+Return: lengths: nd array [lc, lend, L2] these are lengths needed for layout
+        bands:   List of passbands of filter
+        max_order: Maximum order of filter
+"""
 def processFilterParameters(params):
     PI = np.pi
     params = receiveFilterParameters("filterDesignParameters.txt")
-    lamda_0 = 1565#nm
-    lamda_1 = 1520#nm
-    print(str(lamda_0))
-    print(str(lamda_1))
-    L_U = calcUnitDelayLength(lamda_1,lamda_0,params[0])
     lc = params[1]
-    print(str(lc))
     lend = params[2]
-    print(str(lend))
     L2 = params[3]
-    print(str(L2))
+    lengths = np.array([lc,lend,L2])
     filter_type = params[4]#Pass or Stop
     print(filter_type)
-    bands = []#Passbands of multiband filter
     n_bands = params[5]
     center_freqs = np.zeros(1)
-    max_order = 0.0
+    max_order = 0
+    L_U = 0.0
     if n_bands == 1:
-        center_freqs[0] = convertToNormalizedFrequency(lamda_0, lamda_1, params[6])
+        lambda0, lambda1 = determineWavelengthEndpoints(np.array([params[6]]))
+        print(lambda0)
+        print(str(lambda1))
+        L_U = calcUnitDelayLength(lambda1, lambda0, params[0])
+        center_freqs[0] = convertToNormalizedFrequency(lambda0, lambda1, params[6])
         max_order = params[7]
     else:
-        omega_c1 = convertToNormalizedFrequency(lamda_0, lamda_1, params[6])
-        omega_c2 = convertToNormalizedFrequency(lamda_0, lamda_1, params[7])
+        lambda0, lambda1 = determineWavelengthEndpoints(np.array([params[6],params[7]]))
+        print(str(lambda0))
+        print(str(lambda1))
+        L_U = calcUnitDelayLength(lambda1, lambda0, params[0])
+        omega_c1 = convertToNormalizedFrequency(lambda0, lambda1, params[6])
+        omega_c2 = convertToNormalizedFrequency(lambda0, lambda1, params[7])
         center_freqs = np.array([omega_c1, omega_c2])
         max_order = params[8]
     print(center_freqs)
     print(str(max_order))
-    return L_U, filter_type, center_freqs             
+    bands = dF.obtainBandsFromCenterFreqs(center_freqs, 0.1*PI, filter_type)
+    for ii in range(len(bands)):
+        print("Band: [" + str(bands[ii][0]) + "," + str(bands[ii][1]) + "]") 
+    return L_U, lengths, bands, max_order             
 
 #Function to write the layout paramters to a file
 def writeLayoutParametersToFile(kappalcs, phis, L_U, L_2, filename, insertionLoss, order, method):
@@ -150,7 +193,7 @@ def writeLayoutParametersToFile(kappalcs, phis, L_U, L_2, filename, insertionLos
 def main():
     PI = np.pi
     params = receiveFilterParameters("filterDesignParameters.txt")
-    L_U, filter_type, center_freqs = processFilterParameters(params)
+    L_U, lengths, bands, max_order = processFilterParameters(params)
     """
     A_N, N = designOpticalFilter(method, bands, t_width, spec)
     if A_N[0] > 0.0:
