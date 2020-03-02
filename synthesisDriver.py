@@ -61,21 +61,15 @@ def determineWavelengthEndpoints(center_wvlengths):
         lambda0 = center_wvlengths[0] + 23
         lambda1 = center_wvlengths[0] - 23
     else:
-        lambda0 = center_wvlengths[0] + 20
-        lambda1 = center_wvlengths[1] - 20
+        lambda0 = center_wvlengths[0] + 12
+        lambda1 = center_wvlengths[1] - 12
         omega_1 = convertToNormalizedFrequency(lambda0, lambda1, center_wvlengths[0])
         omega_2 = convertToNormalizedFrequency(lambda0, lambda1, center_wvlengths[1])
-        max_twidth = (omega_2-(0.05*PI))-(omega_1+(0.05*PI))/4.0
-        omega1 = omega_1 - (0.05*PI) - (max_twidth/2.0)
-        omega2 = omega_2 + (0.05*PI) + (max_twidth/2.0)
-        while omega1 < 0.05*PI or omega2 > 0.95*PI:
-            lambda0 = lambda0 + 3
-            lambda1 = lambda1 - 3
+        while omega_1 < 0.1*PI or omega_2 > 0.9*PI:
+            lambda0 = lambda0 + 2
+            lambda1 = lambda1 - 2
             omega_1 = convertToNormalizedFrequency(lambda0, lambda1, center_wvlengths[0])
             omega_2 = convertToNormalizedFrequency(lambda0, lambda1, center_wvlengths[1])
-            max_twidth = (omega_2-(0.05*PI))-(omega_1+(0.05*PI))/4.0
-            omega1 = omega_1 - (0.05*PI) - (max_twidth/2.0)
-            omega2 = omega_2 + (0.05*PI) + (max_twidth/2.0)
     return lambda0, lambda1        
         
 
@@ -84,14 +78,16 @@ def determineWavelengthEndpoints(center_wvlengths):
 #bands is a list of passbands
 def calcInsertionLoss(A_N, bands):
     """
-    Find Insertion loss in each passband by numerically integrating |A_N(e^jw)| over each passband to find average value,
-    then calculate the insertion loss in that passband. Then, add to list and take max.
+    Find Insertion loss in each passband by numerically integrating |A_N(e^jw)| over a neighborhood of radius 0.01*PI
+    around each center frequency point to find average value, then calculate the insertion loss in that passband.
+    Then, add to list and take max.
     """
     insertionLossEachBand = []
     N = A_N.coef.size - 1
     for band in bands:
-        numPoints = 150
-        freqpoints = np.linspace(band[0],band[1],num=numPoints)
+        numPoints = 200
+        center_freq = (band[1]-band[0])/2.0
+        freqpoints = np.linspace(center_freq-0.0314,center_freq+0.0314,num=numPoints)
         magA_z_vals = np.zeros(numPoints)
         for ii in range(freqpoints.size):
             val = np.absolute(np.polyval(A_N,np.exp(freqpoints[ii]*1j)**(-N)))
@@ -135,6 +131,8 @@ Paramters: params: Formatted list of values read from file
 Return: lengths: nd array [lc, lend, L2] these are lengths needed for layout
         bands:   List of passbands of filter
         max_order: Maximum order of filter
+        filter_type: 'Pass' or 'Stop'
+        endpoints: nd array of endpoints of desired wavelength interval [lambda_1, lambda_0] lambda_1 corresponds to larger frequency
 """
 def processFilterParameters(params):
     PI = np.pi
@@ -149,8 +147,10 @@ def processFilterParameters(params):
     center_freqs = np.zeros(1)
     max_order = 0
     L_U = 0.0
+    endpoints = np.zeros(2)
     if n_bands == 1:
         lambda0, lambda1 = determineWavelengthEndpoints(np.array([params[6]]))
+        endpoints = np.array([lambda1, lambda0])
         print(lambda0)
         print(str(lambda1))
         L_U = calcUnitDelayLength(lambda1, lambda0, params[0])
@@ -158,6 +158,7 @@ def processFilterParameters(params):
         max_order = params[7]
     else:
         lambda0, lambda1 = determineWavelengthEndpoints(np.array([params[6],params[7]]))
+        endpoints = np.array([lambda1, lambda0])
         print(str(lambda0))
         print(str(lambda1))
         L_U = calcUnitDelayLength(lambda1, lambda0, params[0])
@@ -170,7 +171,7 @@ def processFilterParameters(params):
     bands = dF.obtainBandsFromCenterFreqs(center_freqs, 0.1*PI, filter_type)
     for ii in range(len(bands)):
         print("Band: [" + str(bands[ii][0]) + "," + str(bands[ii][1]) + "]") 
-    return L_U, lengths, bands, max_order             
+    return L_U, lengths, bands, max_order, filter_type, endpoints             
 
 #Function to write the layout paramters to a file
 def writeLayoutParametersToFile(kappalcs, phis, L_U, L_2, filename, insertionLoss, order, method):
@@ -193,13 +194,31 @@ def writeLayoutParametersToFile(kappalcs, phis, L_U, L_2, filename, insertionLos
 def main():
     PI = np.pi
     params = receiveFilterParameters("filterDesignParameters.txt")
-    L_U, lengths, bands, max_order = processFilterParameters(params)
-    """
-    A_N, N = designOpticalFilter(method, bands, t_width, spec)
+    L_U, lengths, bands, max_order, filter_type, endpoints = processFilterParameters(params)
+    A_N, N, t_width = dF.designKaiserIter(max_order, bands, filter_type)
     if A_N[0] > 0.0:
         A_N = -1.0*A_N
-    print(A_N)
-    """
+    A_z = np.poly1d(A_N)
+    print(A_z)
+    if filter_type == 'Stop':
+        passbands = dF.obtainPassbandsFromStopbands(bands, t_width)
+        bands = passbands
+    insertionLoss = calcInsertionLoss(A_z, bands)
+    kappalcs, phis, B_N = lfs.synthesizeFIRLattice(A_N, N)
+    writeLayoutParametersToFile(kappalcs, phis, L_U, 25.0, "layoutParameters.txt", insertionLoss, N, "Kaiser")
+    w, h = freqz(B_N)
+    c = 3.0E8
+    f1 = c/endpoints[0]
+    f0 = c/endpoints[1]
+    wvlength = np.zeros(w.size)
+    for ii in range(w.size):
+        denom = (1.0/PI)*(w[ii]*(f1-f0)) + f0
+        wvlength[ii] = c/denom  
+    plt.title('MA/FIR filter frequency response')
+    plt.plot(np.flip(wvlength), 20*np.log10(abs(h)), 'b')
+    plt.ylabel('Amplitude [dB]', color='b')
+    plt.xlabel('Wavelength [um]')
+    plt.show()
 
 if __name__ == '__main__':
     main()

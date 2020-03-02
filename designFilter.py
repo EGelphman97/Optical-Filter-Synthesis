@@ -1,12 +1,12 @@
 #Eric Gelphman
 #UC San Diego Department of Electrical and Computer Engineering
-#February 29, 2020
+#March 1, 2020
 
 """
 Python Script that has methods to obtain the transfer function H(z)
 Of digital filters as an array of coefficients. These coefs. will then be passed
 to latticeFilterSynthesis.py to determine the lattice parameters
-Version 1.0.6
+Version 1.0.7
 """
 
 import numpy as np
@@ -49,22 +49,14 @@ def obtainBandsFromCenterFreqs(center_freqs, bandwidth, typef):
             omega_u = center_freqs[ii] + (bandwidth/2.0)
             bands.append((omega_l, omega_u, 1.0))
     else:
-        stopbands = []
         for ii in range(center_freqs.size):
             omega_l = center_freqs[ii] - (bandwidth/2.0)
             omega_u = center_freqs[ii] + (bandwidth/2.0)
-            stopbands.append((omega_l, omega_u))
-        #Determine max. t_width
-        max_difference = 0.0
-        for ii in range(len(stopbands)-1):
-            diff = stopbands[ii+1][0]-stopbands[ii][1]
-            if diff > max_difference:
-                max_difference = diff
-        bands = obtainPassbandsFromStopbands(stopbands, max_difference/4.0)
+            bands.append((omega_l, omega_u, 0.0))
     return bands
             
 """
-Function to determine the coefficients of a multiband FIR filter with corresponding passbands and gains using a Kaiser window
+Function to determine the coefficients of a multiband FIR filter with corresponding passbands (or stopbands) and gains using a Kaiser window
 
 Parameters:   ripple: max. deviation in dB of the realized filter's frequnecy response from the ideal frequnecy response
               t_width: min. transition width for any band in the multiband filter. This needs to be such that 
@@ -74,7 +66,7 @@ Parameters:   ripple: max. deviation in dB of the realized filter's frequnecy re
 Return:       coefs: ndarray which holds filter coeffients, index refers to power of z^-1
               order: order of filter 
 """
-def designFIRFilterKaiser(ripple, bands, t_width, plot=True):
+def designFIRFilterKaiser(ripple, bands, t_width, filterType, plot=True):
     PI = np.pi
     num_coefs, beta = kaiserord(ripple, t_width)#Determine parameter beta of Kaiser window
     freq = []#Frequency points
@@ -84,27 +76,47 @@ def designFIRFilterKaiser(ripple, bands, t_width, plot=True):
     for ii in range(len(bands)):
         if (bands[ii][0]-t_width not in freq) and (bands[ii][0] != 0.0):
             freq.append(bands[ii][0]-t_width)
-            gain.append(0.0)
+            if filterType == 'Pass':
+                gain.append(0.0)
+            else:
+                gain.append(1.0)
         freq.append(bands[ii][0])
         gain.append(bands[ii][2])
         freq.append(bands[ii][1])
         gain.append(bands[ii][2])
         if bands[ii][1] <= PI-t_width:
             freq.append(bands[ii][1]+t_width)
-            gain.append(0.0)
+            if filterType == 'Pass':
+                gain.append(0.0)
+            else:
+                gain.append(1.0)
     #print("Number of Coefs.: " + str(n_coefs))
     if 0.0 not in freq:
         freq.insert(0,0.0)
-        gain.insert(0,0.0)
+        if filterType == 'Pass':
+            gain.insert(0,0.0)
+        else:
+            gain.insert(0,1.0)
     if PI not in freq:
         freq.append(PI)
-        gain.append(0.0)
+        if filterType == 'Pass':
+                gain.append(0.0)
+        else:
+                gain.append(1.0)
     
     #Design the filter
-    coefs = firwin2(num_coefs, freq, gain, window=('kaiser',beta), nyq=PI)
+    order = num_coefs - 1
+    #Numpy's built-in Kaiser function designs Type I or II filters by default, need to check that necessary conditions are met
+    antiSym=False#Flag to design a symmetric or anti-symmetric filter
+    if order % 2 == 1:#A Type II FIR linear phase system must have a zero at omega = PI
+        if gain[len(gain)-1] != 0.0:#If gain of filter is not supposed to be 0 at omega = PI
+            num_coefs = num_coefs + 1#Increase order by 1 to make it a Type I
+        else:#If gain of filter is supposed to be 0 at omega = PI
+            antiSym=True#Design a Type IV      
+    coefs = firwin2(num_coefs, freq, gain, window=('kaiser',beta), nyq=PI, antisymmetric=antiSym)
     
     if plot:
-        w, h = freqz(coefs)
+        w, h = freqz(coefs,worN=2048)
         plt.title('Kaiser Window filter frequency response')
         plt.plot(w, 20*np.log10(abs(h)), 'b')
         plt.ylabel('Amplitude [dB]', color='b')
@@ -224,34 +236,37 @@ Function to iteratively design a FIR/MA filter using the Kaiser window method
 Parameters: N_max: Maximum orderder allowed for filter
             center_freqs: Center (normalized) frequencies of the pass (or stop) bands, lower frequency is in index 0
             bands: List of tuples representing passband intervals, in units of normalized frequency
-Return: A_N: coefficent array for filter, coef. of Z^-N term is in position 0 in array
+            filterType: Type of filter, is either "Pass" or "Stop"
+Return: A_N: Coefficent array for filter, coef. of Z^-N term is in position 0 in array
           N: Filter order
+    t_width: Transition band width, in normalized frequency
 """
-def designKaiserIter(N_max, center_freqs, bands):
-    max_twidth = (center_freqs[1]-center_freqs[0])/4.0
+def designKaiserIter(N_max, bands, filterType):
+    PI = np.pi
     atten = 50#Try for 50 dB extinction in stopband
-    passband_gap = bands[1][0] - bands[0][1]#Define max. transition width in terms of gap between passbands
-    max_twidth = passbandgap/4.0
+    max_twidth = 0.18*PI#What max. t_width is for single-band filter
+    if len(bands) == 2:
+        DSP_band_gap = bands[1][0] - bands[0][1]#Define max. transition width in terms of gap between passbands (or stopbands
+        max_twidth = DSP_band_gap/3.0
     t_width = max_twidth/5.0
-    A_N, N = designFIRFilterKaiser(atten, bands, t_width, plot=False)
+    A_N, N = designFIRFilterKaiser(atten, bands, t_width, filterType, plot=False)
     while N > N_max:
         if t_width < max_twidth:
-            t_width = 1.3*t_width
-            A_N, N = designFIRFilterKaiser(atten, bands, t_width, plot=False)
+            t_width = 1.4*t_width
+            A_N, N = designFIRFilterKaiser(atten, bands, t_width, filterType, plot=False)
         else:
             atten = atten - 5.0
-            A_N, N = designFIRFilterKaiser(atten, bands, t_width, plot=False)
-    return np.flip(A_N), N
-         
+            A_N, N = designFIRFilterKaiser(atten, bands, t_width, filterType, plot=False)
+    return np.flip(A_N), N, t_width
+
+"""      
 def main():
     PI = np.pi
-    stopbands = [(0.0, 0.2*PI, 1.0), (0.7*PI, PI, 1.0)]
-    passbands = obtainPassbandsFromStopbands(stopbands, 0.05*PI)
-    for band in passbands:
-        print(np.array(band))
-    #coefs, n_coefs = designFIRFilterPMcC(50, 0.05*PI, bands)
-    #print(n_coefs)
+    stopbands = [(0.25*PI, 0.35*PI, 1.0), (0.55*PI, 0.65*PI, 1.0)]
+    coefs, n_coefs = designFIRFilterKaiser(50, stopbands, 0.05*PI, 'Pass')
     
 
 if __name__ == '__main__':
     main()
+"""
+

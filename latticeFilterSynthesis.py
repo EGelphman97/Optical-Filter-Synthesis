@@ -1,9 +1,9 @@
 #Eric Gelphman
 #UC San Diego Department of Electrical and Computer Engineering
-#February 22, 2020
+#March 1, 2020
 
 #Implementation of Madsen and Zhao's Optical MA/FIR and AR/IIR Lattice Filter Design Algorithm
-#Version 1.0.10
+#Version 1.0.11
 
 import designFilter as dF
 import numpy as np
@@ -122,21 +122,21 @@ def calcLengths(kappa, lc, lend):
 Function to synthesize an FIR optical lattice filter using the algorithm outlined in Section 4.5 of Madsden and Zhao
 Paramters: A_N: Coefficient array of polynomial in z^-1 of degree N that is part of the 2x2 transfer function
            N:   Filter order
-           lamda_0: wavelength, in um, of longest wavelength in filter spectrum
-           lamda_1: wavelength, in um, of shortest wavelength in filter spectrum
 Return: kappalcs: List of power coupling coefficients kappa_n's, Lc's and lc + lend for each stage, as well as c_n and s_n list index is same as n
                   Format is: kappalcs[n] = (kappa_n, L_c_n, lc + lend of stage n, c_n, s_n)
         phi_l:   List of phase terms phi_n list index is n-1
+        B_N: Polynomial (in z^-1) B_N(z)
 """
-def synthesizeFIRLattice(A_N, N, lamda_0, lamda_1):
+def synthesizeFIRLattice(A_N, N):
     gamma = 1.0
     B_N = findBPolyMA(A_N)
+    B_N_OG = B_N
+    print(np.poly1d(B_N))
     phi_l = []#List of phi_n's
     kappalcs = []#List of kappas, Lc's. This is what we want to return
     n = N
     while n >= 0:
         #print(A_N)
-        #print(B_N)
         
         #Calculate kappa
         beta = np.absolute(B_N[0]/A_N[0])**2
@@ -165,7 +165,7 @@ def synthesizeFIRLattice(A_N, N, lamda_0, lamda_1):
         n = n - 1
         A_N = A_N1
         B_N = B_N1
-    return kappalcs, phi_l
+    return kappalcs, phi_l, B_N_OG
 
 """
 Function to get the 2x2 FIR transfer function of the filter given the power coupling ratio kappa for each stage.
@@ -268,7 +268,7 @@ def inverseARSynthesis(kappas, phis, little_gamma):
 
    
   
-    
+"""   
 def main():
     PI = np.pi
     lamda_0 = 1565#nanometers
@@ -283,12 +283,9 @@ def main():
     omega_c2 = sD.convertToNormalizedFrequency(lamda_0, lamda_1, center_l1)
     center_freqs = np.array([omega_c1, omega_c2])
     print(center_freqs)
-    bandwidth = 0.1*np.pi
+    passbandwidth = 0.1*np.pi
     
-    max_t = (omega_c2 - omega_c1)/4.0#max. transition bandwidth, in units of normalized frequency
-    #Need to make sure there are no issues with choice of pass/stop bandwidth
-    while omega_c1 - (bandwidth/2.0) < 0.0 or omega_c2 + (bandwidth/2.0) > np.pi or ((omega_c2 - (bandwidth/2.0) - max_t) - (omega_c1 + (bandwidth/2.0) + max_t)) < 0.0:
-        bandwidth = bandwidth/2.0
+    
     
     print(bandwidth)
     
@@ -305,14 +302,12 @@ def main():
     insertionLoss = sD.calcInsertionLoss(A_z, bands)
     kappalcs, phis = synthesizeFIRLattice(A_N, N, lamda_0, lamda_1)
     sD.writeLayoutParametersToFile(kappalcs, phis, L_U, 25.0, "layoutParameters.txt", insertionLoss, N, "Kaiser")
-    """
     kappas = np.zeros(len(kappalcs))
     #print(np.array(phis))
     for ii in range(len(kappalcs)):
         kappas[ii] = kappalcs[ii][0]
     A_N, B_N, A_N_R, B_N_R = inverseFIRSynthesis(kappas, phis)
     print(np.poly1d(A_N))
-    """
     w, h = freqz(A_N)
     c = 3.0E8
     f1 = c/lamda_1
@@ -329,7 +324,7 @@ def main():
                  
 if __name__ == '__main__':
     main()
-    
+"""    
         
     
     
