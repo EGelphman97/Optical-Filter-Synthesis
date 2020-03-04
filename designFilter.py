@@ -1,17 +1,35 @@
 #Eric Gelphman
 #UC San Diego Department of Electrical and Computer Engineering
-#March 1, 2020
+#March 3, 2020
 
 """
 Python Script that has methods to obtain the transfer function H(z)
 Of digital filters as an array of coefficients. These coefs. will then be passed
 to latticeFilterSynthesis.py to determine the lattice parameters
-Version 1.0.7
+Version 1.1.0
 """
 
 import numpy as np
 from scipy.signal import kaiser_beta, kaiserord, firwin2, freqz, remez, firls
 import matplotlib.pyplot as plt
+
+"""
+Function to obtain the normalized angular frequency omega, 0 <= omega <= pi value from a given (continuous-time) wavelength value lamda
+Parameters:  lamda0 = longest wavelength in range of interest, in nm
+             lamda1 = shortest wavelength in range of interest, in nm
+             lamda = wavelength you want to find normalized frequency for, in nm
+Return: Normalized frequency omega, 0 <= omega <= pi
+"""
+def convertToNormalizedFrequency(lamda0, lamda1, lamda):
+    c = 3.0E8#The speed of light
+    lamda_0 = lamda0*(1.0E-9)
+    lamda_1 = lamda1*(1.0E-9)
+    lamda_ = lamda*(1.0E-9)
+    f1 = c/lamda_1
+    f0 = c/lamda_0
+    f = c/lamda_
+    omega = np.pi*(f-f0)/(f1-f0)
+    return omega
 
 """
 Function to perform a boolean operation on a list of stopbands to get corresponding list of passbands
@@ -35,40 +53,42 @@ def obtainPassbandsFromStopbands(stopbands, t_width):
     return passbands
 
 """
-Function to obtain the bands(pass or stop) from the center (normalized) frequencies
-Parameters: center_freqs: ndarray of center frequencies, lowest frequency is in position 0 of array
-            bandwidth:    desired width of pass (or stop) band
+Function to obtain the bands(pass or stop), in units of normalized frequency, from the center wavelengths (in nm)
+Parameters: center_wvlength: ndarray of center wavelengths, longest wavelength/lowest frequency is in position 0 of array
+            band_wvlength:    desired width of pass (or stop) band, in nm
+            endpoints: endpoints of wavelength of interest, longest wavelength/lowest frequency is in position 0 of array
             typef:        string that indicates type of filter, this parameter is either "Pass" or "Stop"
 Return: List of tuples representing band (normalized) frequency intervals
 """
-def obtainBandsFromCenterFreqs(center_freqs, bandwidth, typef):
+def obtainBandsFromCenterWvlengths(center_wvlengths, endpoints, band_wvlength, typef):
     bands = []
-    if typef == "Pass":
-        for ii in range(center_freqs.size):
-            omega_l = center_freqs[ii] - (bandwidth/2.0)
-            omega_u = center_freqs[ii] + (bandwidth/2.0)
-            bands.append((omega_l, omega_u, 1.0))
-    else:
-        for ii in range(center_freqs.size):
-            omega_l = center_freqs[ii] - (bandwidth/2.0)
-            omega_u = center_freqs[ii] + (bandwidth/2.0)
-            bands.append((omega_l, omega_u, 0.0))
+    for ii in range(center_wvlengths.size):
+        lambda_lower = center_wvlengths[ii] - (band_wvlength/2.0)
+        lambda_upper = center_wvlengths[ii] + (band_wvlength/2.0)
+        omega_lower = convertToNormalizedFrequency(endpoints[0], endpoints[1], lambda_upper)
+        omega_upper = convertToNormalizedFrequency(endpoints[0], endpoints[1], lambda_lower)
+        if typef == "Pass":
+            bands.append((omega_lower, omega_upper, 1.0))
+        else:
+            bands.append((omega_lower, omega_upper, 0.0))
     return bands
             
 """
 Function to determine the coefficients of a multiband FIR filter with corresponding passbands (or stopbands) and gains using a Kaiser window
 
-Parameters:   ripple: max. deviation in dB of the realized filter's frequnecy response from the ideal frequnecy response
-              t_width: min. transition width for any band in the multiband filter. This needs to be such that 
-              bands: list of 3-tuples (omega_p1, omega_p2, G) were omega_p1 <= omega <= omega_p2 is one passband of the multiband filter, G is the passband gain in linear scale
+Parameters:   bands: list of 3-tuples (omega_p1, omega_p2, G) were omega_p1 <= omega <= omega_p2 is one band of the multiband filter,
+                     G is the gain in the band in linear scale
+              t_width: min. transition width for any band in the multiband filter
+              num_coefs: Order of filter plus one(number of taps)
+              beta: Kaiser parameter beta, depends on attenuation, determined using one of numpy's built-in functions
+              filterType:'Pass" or 'Stop' indicating whether it is a bandpass or bandstop filter
               plot: default is True, set to false to NOT plot the frequency response
               
 Return:       coefs: ndarray which holds filter coeffients, index refers to power of z^-1
               order: order of filter 
 """
-def designFIRFilterKaiser(ripple, bands, t_width, filterType, plot=True):
+def designFIRFilterKaiser(bands, t_width, num_coefs, beta, filterType, plot=True):
     PI = np.pi
-    num_coefs, beta = kaiserord(ripple, t_width)#Determine parameter beta of Kaiser window
     freq = []#Frequency points
     gain = []#Gain of filter at frequency points in freq
     
@@ -113,7 +133,8 @@ def designFIRFilterKaiser(ripple, bands, t_width, filterType, plot=True):
             num_coefs = num_coefs + 1#Increase order by 1 to make it a Type I
         else:#If gain of filter is supposed to be 0 at omega = PI
             antiSym=True#Design a Type IV      
-    coefs = firwin2(num_coefs, freq, gain, window=('kaiser',beta), nyq=PI, antisymmetric=antiSym)
+    coefs = np.flip(firwin2(num_coefs, freq, gain, window=('kaiser',beta), nyq=PI, antisymmetric=antiSym))#Need to flip so indices
+    #match in numpy's poly1d class, highest power of z^-1 (see ECE 161B notes) is in index 0 of coefficent array
     
     if plot:
         w, h = freqz(coefs,worN=2048)
@@ -234,30 +255,33 @@ def designFIRFilterLS(order, t_width, bands, plot=True):
 """
 Function to iteratively design a FIR/MA filter using the Kaiser window method
 Parameters: N_max: Maximum orderder allowed for filter
-            center_freqs: Center (normalized) frequencies of the pass (or stop) bands, lower frequency is in index 0
+     center_freqs: Center (normalized) frequencies of the pass (or stop) bands, lower frequency is in index 0
             bands: List of tuples representing passband intervals, in units of normalized frequency
-            filterType: Type of filter, is either "Pass" or "Stop"
+       filterType: Type of filter, is either "Pass" or "Stop"
 Return: A_N: Coefficent array for filter, coef. of Z^-N term is in position 0 in array
           N: Filter order
     t_width: Transition band width, in normalized frequency
 """
-def designKaiserIter(N_max, bands, filterType):
+def designKaiserIter(N_max, bands, atten, filterType):
     PI = np.pi
-    atten = 50#Try for 50 dB extinction in stopband
     max_twidth = 0.18*PI#What max. t_width is for single-band filter
     if len(bands) == 2:
         DSP_band_gap = bands[1][0] - bands[0][1]#Define max. transition width in terms of gap between passbands (or stopbands
-        max_twidth = DSP_band_gap/3.0
+        max_twidth = DSP_band_gap/4.0
     t_width = max_twidth/5.0
-    A_N, N = designFIRFilterKaiser(atten, bands, t_width, filterType, plot=False)
+    num_coefs, beta = kaiserord(atten, t_width)#Determine parameter beta of Kaiser window
+    N = num_coefs - 1
     while N > N_max:
         if t_width < max_twidth:
-            t_width = 1.4*t_width
-            A_N, N = designFIRFilterKaiser(atten, bands, t_width, filterType, plot=False)
+            t_width = 1.1*t_width
+            num_coefs, beta = kaiserord(atten, t_width)#Determine parameter beta of Kaiser window
+            N = num_coefs - 1
         else:
-            atten = atten - 5.0
-            A_N, N = designFIRFilterKaiser(atten, bands, t_width, filterType, plot=False)
-    return np.flip(A_N), N, t_width
+            atten = atten - 2.5
+            num_coefs, beta = kaiserord(atten, t_width)#Determine parameter beta of Kaiser window
+            N = num_coefs - 1
+    A_N, N = designFIRFilterKaiser(bands, t_width, num_coefs, beta, filterType, plot=False)
+    return A_N, N, t_width
 
 """      
 def main():

@@ -1,16 +1,16 @@
 #Eric Gelphman
 #UC San Diego Department of Electrical and Computer Engineering
-#March 1, 2020
+#March 3, 2020
 
 #Implementation of Madsen and Zhao's Optical MA/FIR and AR/IIR Lattice Filter Design Algorithm
-#Version 1.0.11
+#Version 1.1.0
 
-import designFilter as dF
+#import designFilter as dF
 import numpy as np
 from scipy import integrate
 from scipy.signal import freqz
 import matplotlib.pyplot as plt
-import synthesisDriver as sD
+#import synthesisDriver as sD
 
 """
 Function to perform spectral factorization for the roots of B(z)BR(z)(MA case) or B(z)B_star(z)(AR case)
@@ -52,9 +52,10 @@ Parameters: A: coefficient array of polynomial in z^-1 of degree N that also is 
                Note that z^-N term should occupy position 0 in coefficient array, with other terms occupying
                the indices in descending powers of z^-1. E.g.: z^-(N-1) term should occupy position 1 in coefficient
                array, z^-(N-2) term should occupy position2, ... , constant term occupies position A.coef.size-1 in array
+         plot: Boolean, default is True, thatbindicates whether or not the zeros of B_N(z) should be plotted
 Return:     B: coefficient array of polynomial in z^-1 of degree N B_N(z)
 """
-def findBPolyMA(A):
+def findBPolyMA(A, plot=True):
     phase_arr = np.zeros(A.size)
     phase_arr[0] = 1.0#only coef. of Z^(-N) term is nonzero for phase term
     bbr_coef = -1.0*np.polymul(A,np.flip(A))
@@ -64,15 +65,16 @@ def findBPolyMA(A):
     for ii in range(roots.size):
         print(f"{np.abs(roots[ii])}e^{np.angle(roots[ii])}")
     """
-    #Plot the zeros
-    theta = np.linspace(-np.pi, np.pi, 201)
-    plt.plot(np.sin(theta), np.cos(theta), color = 'gray', linewidth=0.2)
-    plt.plot(np.real(roots),np.imag(roots), 'Xb', label='Zeros')
-    plt.title("Pole-Zero Plot")
-    plt.xlabel("Real")
-    plt.ylabel("Imaginary")
-    plt.grid()
-    plt.show()
+    #Plot the zeros, if desired
+    if plot:
+        theta = np.linspace(-np.pi, np.pi, 201)
+        plt.plot(np.sin(theta), np.cos(theta), color = 'gray', linewidth=0.2)
+        plt.plot(np.real(roots),np.imag(roots), 'Xb', label='Zeros')
+        plt.title("Pole-Zero Plot")
+        plt.xlabel("Real")
+        plt.ylabel("Imaginary")
+        plt.grid()
+        plt.show()
 
     #Spectral factorization
     b_roots = spectralFactorization(roots, bbr.order/2)
@@ -129,9 +131,8 @@ Return: kappalcs: List of power coupling coefficients kappa_n's, Lc's and lc + l
 """
 def synthesizeFIRLattice(A_N, N):
     gamma = 1.0
-    B_N = findBPolyMA(A_N)
+    B_N = findBPolyMA(A_N, plot=False)
     B_N_OG = B_N
-    print(np.poly1d(B_N))
     phi_l = []#List of phi_n's
     kappalcs = []#List of kappas, Lc's. This is what we want to return
     n = N
