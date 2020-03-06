@@ -1,16 +1,15 @@
 #Eric Gelphman
 #UC San Diego Department of Electrical and Computer Engineering
-#March 3, 2020
+#March 6, 2020
 
-#Implementation of Madsen and Zhao's Optical MA/FIR and AR/IIR Lattice Filter Design Algorithm
-#Version 1.1.0
+#Implementation of Madsen and Zhao's Optical MA/FIR Lattice Filter Design Algorithm
+#Version 1.1.1
 
 #import designFilter as dF
 import numpy as np
 from scipy import integrate
 from scipy.signal import freqz
 import matplotlib.pyplot as plt
-#import synthesisDriver as sD
 
 """
 Function to perform spectral factorization for the roots of B(z)BR(z)(MA case) or B(z)B_star(z)(AR case)
@@ -81,32 +80,8 @@ def findBPolyMA(A, plot=True):
     B_tild = np.poly1d(b_roots, True)#Construct polynomial from its roots
     alpha = np.sqrt((-A[A.size-1]*A[0])/(B_tild.coef[B_tild.coef.size-1]*B_tild.coef[0]))#Scale factor
     B = alpha*B_tild#Build B_N(z) by scaling B_tild(z) by alpha
-    
     return np.flip(B)#Hihest degree coef. is actually in lowest degree coef. before flip, so need flip
 
-"""
-Function to find the polynomial B_N(z) which is needed to find the 2x2 AR transfer function of the optical filter
-Parameters: A: polynomial(poly1d) in z^-1 of degree N that also is part of the 2x2 transfer function
-               Note that z^-N term should occupy position 0 in coefficient array, with other terms occupying
-               the indices in descending powers of z^-1. E.g.: z^-(N-1) term should occupy position 1 in coefficient
-               array, z^-(N-2) term should occupy position2, ... , constant term occupies position A.coef.size-1 in array
-            sigma: Gain parameter, see pg. 248 of Madsden and Zhao 
-Return:     Polynomial(poly1d) in z^-1 of degree N B_N(z)
-"""
-def findBPolyAR(A, sigma):
-    A_star_coef = np.conj(np.flip(A.coef))
-    #Form polynomial B(z)B_star(conj(z^-1)), then find its roots
-    bbstar_coef = np.polymul(A.coef,A_star_coef)
-    bbstar_coef[int(bbstar_coef.size/2)] = bbstar_coef[int(bbstar_coef.size/2)] + sigma
-    bbstar = np.poly1d(bbstar_coef)
-    roots = bbstar.roots
-    
-    b_roots = spectralFactorization(roots, bbstar.order/2)
-    B_prime = np.poly1d(b_roots, True)#Construct polynomial from its roots
-    B_primep = np.poly1d(np.flip(B_prime.coef))#Want highest degree term to occupy position 0 in coef. array
-    alpha = np.sqrt(A.coef[0]/B_primep.coef[0])
-    B = alpha*B_primep
-    return np.poly1d(B)
 
 """
 Function to compute the cross-over length and other lengths needed for layout
@@ -200,123 +175,9 @@ def inverseFIRSynthesis(kappas, phis):
     B_N_R = np.conj(np.flip(B_N1))
     return A_N1, B_N1, A_N_R, B_N_R
 
-"""
-Function to implement the AR lattice synthesis algorithm as outlined in Section 5.2 of Madsden and Zhao
-Parameters: A_N: Polynomial(poly1d) in z^-1 of degree N that is the filter transfer function
-              N: Order of filter/degree of A_N(z)
-      big_gamma: Overall gain parameter
-   little_gamma: Uniform loss coefficient
-Return: List of kappa_n's and phi_n's for each stage. kappa_0 exists but indexing for phi_n starts at 1
-"""
-def synthesizeARLattice(A_N, N, big_gamma, little_gamma):
-    sigma_N = 0.9*9.025E-03
-    B_N = findBPolyAR(A_N, sigma_N)
-    phis = []#List of phi_n's
-    kappas = []#List of kappas
-    n = N
-    while n >= 0:
-        #print(A_N)
-        #print(B_N)
-        c_n = B_N.coef[B_N.coef.size-1]
-        kappa = 1.0 - (c_n**2)
-        kappas.insert(0,kappa)
-        if n > 0:
-            A_coef = A_N.coef
-            B_coef = B_N.coef
-            A_N1_arr = (1.0/kappa)*np.polyadd(A_coef, -c_n*B_coef)
-            A_N1 = np.poly1d(A_N1_arr[1:A_N1_arr.size])#Reduce order by 1
-            B_N1_tild = (1.0/(little_gamma*kappa))*np.polyadd(c_n*A_coef,-1.0*B_coef)#This is an ndarray
-            phi_n = np.angle(A_N1.coef[0]) - np.angle(B_N1_tild[0])
-            phis.insert(0,phi_n)
-            B_N1 = np.poly1d(np.exp(1j*phi_n)*B_N1_tild[0:B_N1_tild.size-1])#Reduce order by 1 by eliminating the constant term
-            for ii in range(B_N1.coef.size):
-                if np.imag(B_N1.coef[ii]) < 2.0E-16:
-                    B_N1.coef[ii] = np.real(B_N1.coef[ii])
-            
-        n = n - 1
-        A_N = A_N1
-        B_N = B_N1
-    return kappas, phis
-
-"""
-Function to do the inverse operation of AR lattice filter synthesis, that is, given kappas and phis, obtain A_N(z)
-Parameters: kappas: array of power coupling ratios kappa_n for each stage, 0 <= n <= N
-              phis: list of phase terms for each stage 1 <= n <= N
-      little_gamma: overall loss coefficient gamma
-Return: Polynomials A_N(z), B_N(z)
-"""
-def inverseARSynthesis(kappas, phis, little_gamma):
-    A_N1 = np.poly1d([1.0])#A_0(z) = 1
-    B_N1 = np.poly1d([np.sqrt(1.0 - kappas[0])])#B_0(z) = c_0
-    for ii in range(1,kappas.size):
-        c_n = np.sqrt(1.0-kappas[ii])
-        #Form A_N(z)
-        B1arr = np.exp(-1j*phis[ii-1])*little_gamma*np.pad(B_N1.coef, (0,1), 'constant', constant_values=(0,0))#Increase degree of each term by left-shifting array and filling with 0
-        A_N = np.poly1d(np.polyadd(A_N1.coef,-1.0*c_n*B1arr))
-        #Form B_N(z)
-        B_N = np.poly1d(np.polyadd(c_n*A_N1.coef,-1.0*B1arr))
-        #Shouldn't have complex coefs.
-        for ii in range(A_N.coef.size):
-            if np.imag(A_N.coef[ii]) < 2.0E-16:
-                A_N.coef[ii] = np.real(A_N.coef[ii])
-            if np.imag(B_N.coef[ii]) < 2.0E-16:
-                B_N.coef[ii] = np.real(B_N.coef[ii])
-
-        A_N1 = A_N
-        B_N1 = B_N
-        
-    return A_N1, B_N1
-
-   
-  
 """   
 def main():
     PI = np.pi
-    lamda_0 = 1565#nanometers
-    lamda_1 = 1520#nanometers
-    #bands = [(0.3*PI,0.45*PI,1.0)]
-    #bands = [(0.3*PI, 0.4*PI, 1.0), (0.7*PI, 0.8*PI,1.0)]
-    #A_N, order = dF.designFIRFilterKaiser(50, bands, 0.05*PI, plot=True)
-    #A_N = np.flip(A_N)#So indices match in numpy's poly1d  class
-    center_l1 = 1532
-    center_l2 = 1550
-    omega_c1 = sD.convertToNormalizedFrequency(lamda_0, lamda_1, center_l2)
-    omega_c2 = sD.convertToNormalizedFrequency(lamda_0, lamda_1, center_l1)
-    center_freqs = np.array([omega_c1, omega_c2])
-    print(center_freqs)
-    passbandwidth = 0.1*np.pi
-    
-    
-    
-    print(bandwidth)
-    
-    bands = dF.obtainBandsFromCenterFreqs(center_freqs, bandwidth, "Pass")
-    A_N, N = dF.designKaiserIter(20, center_freqs, bands)
-    #Need highest degree term to be negative for synthesis algorithm to work, see Madsden and Zhao Section 4.5
-    if A_N[0] > 0.0:
-        A_N = -1.0*A_N
-    A_z = np.poly1d(A_N)
-    print(A_z)
-    
-    
-    L_U = sD.calcUnitDelayLength(lamda_1, lamda_0, 4.0)
-    insertionLoss = sD.calcInsertionLoss(A_z, bands)
-    kappalcs, phis = synthesizeFIRLattice(A_N, N, lamda_0, lamda_1)
-    sD.writeLayoutParametersToFile(kappalcs, phis, L_U, 25.0, "layoutParameters.txt", insertionLoss, N, "Kaiser")
-    kappas = np.zeros(len(kappalcs))
-    #print(np.array(phis))
-    for ii in range(len(kappalcs)):
-        kappas[ii] = kappalcs[ii][0]
-    A_N, B_N, A_N_R, B_N_R = inverseFIRSynthesis(kappas, phis)
-    print(np.poly1d(A_N))
-    w, h = freqz(A_N)
-    c = 3.0E8
-    f1 = c/lamda_1
-    f0 = c/lamda_0
-    wvlength = np.zeros(w.size)
-    for ii in range(w.size):
-        denom = (1.0/PI)*(w[ii]*(f1-f0)) + f0
-        wvlength[ii] = c/denom  
     plt.title('MA filter frequency response')
     plt.plot(np.flip(wvlength), 20*np.log10(abs(h)), 'b')
     plt.ylabel('Amplitude [dB]', color='b')
