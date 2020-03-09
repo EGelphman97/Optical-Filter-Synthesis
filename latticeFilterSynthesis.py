@@ -28,13 +28,6 @@ def spectralFactorization(roots, order):
     #print(len(b_roots))
     if len(b_roots) < order:#B(z)BR(z) has n roots, n is even, B(z) has n/2 roots, make sure B(z) has this many roots
         num_remaining = order - len(b_roots)
-        #identify real roots, even if they're not inside unit circle and add them to b_roots
-        for ii in range(roots.size):
-            if np.imag(roots[ii]) == 0.0 and b_roots.count(roots[ii]) == 0:
-                b_roots.append(roots[ii])
-                num_remaining = num_remaining - 1
-                if num_remaining == 0:
-                    break
         #Just pick from roots until b_roots is of the correct size
         if num_remaining > 0:
             for ii in range(roots.size):
@@ -78,6 +71,8 @@ def findBPolyMA(A, plot=True):
     #Spectral factorization
     b_roots = spectralFactorization(roots, bbr.order/2)
     B_tild = np.poly1d(b_roots, True)#Construct polynomial from its roots
+    #print(B_tild)
+    #print(B_tild.coef[B_tild.coef.size-1]*B_tild.coef[0])
     alpha = np.sqrt((-A[A.size-1]*A[0])/(B_tild.coef[B_tild.coef.size-1]*B_tild.coef[0]))#Scale factor
     B = alpha*B_tild#Build B_N(z) by scaling B_tild(z) by alpha
     return np.flip(B)#Hihest degree coef. is actually in lowest degree coef. before flip, so need flip
