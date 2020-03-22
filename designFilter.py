@@ -1,7 +1,7 @@
 """
 Eric Gelphman
 UC San Diego Department of Electrical and Computer Engineering
-Last Updated March 20, 2020 Version 1.1.2
+Last Updated March 21, 2020 Version 1.1.4
 
 Python Script that has methods to obtain the transfer function H(z)
 Of digital filters as an array of coefficients. These coefs. will then be
@@ -28,6 +28,7 @@ def convertToNormalizedFrequency(lamda0, lamda1, lamda):
     Parameters:  lamda0 = longest wavelength in range of interest, in nm
                  lamda1 = shortest wavelength in range of interest, in nm
                  lamda = wavelength you want to find normalized frequency for, in nm
+                 
     Return: Normalized frequency omega, 0 <= omega <= pi
     """
     c = 3.0E8#The speed of light
@@ -49,6 +50,7 @@ def obtainPassbandsFromStopbands(stopbands, t_width):
     Parameters: stopbands: list of tuples of corner (normalized) frequencies
                            of stopbands
                 t_width:   transition bandwidth (normalized frequency)
+                
     Return: list of tuples of passbands with corresponding gains
     """
     passbands = []
@@ -77,6 +79,7 @@ def obtainBandsFromCenterWvlengths(center_wvlengths, endpoints, band_wvlength, t
                                  lowest frequency is in position 0 of array
                           typef: string that indicates type of filter, this parameter is
                                  either "Pass" or "Stop"
+                                 
     Return: List of tuples representing band (normalized) frequency intervals
     """
     bands = []
@@ -102,6 +105,7 @@ def generateH_ejw(bands, t_width, N, filter_type, plot=False):
                 t_width: Transition width of exponential taper
                       N: ifft length(>= 1024)
             filter_type: 'Pass' or 'Stop'
+            
     Return: data: matrix of wavelengths and amplitude at that wavelength in dB
     """
     PI = np.pi
@@ -257,7 +261,6 @@ def designFIRFilterParksMcClellan(order, t_width, bands, filterType, plot=True):
 
     #Design the filter
     coefs = remez(order+1, freq, gain, weight, fs=2.0*PI)
-    print(coefs)
     if plot:
         w, h = freqz(coefs)
         plt.title('Equiripple filter frequency response')
@@ -268,10 +271,28 @@ def designFIRFilterParksMcClellan(order, t_width, bands, filterType, plot=True):
     order = coefs.size - 1
     return np.flip(coefs)
 
+def kaiserBeta(atten):
+    """
+    Function to compute the Kaiser window parameter beta given the max. attenuation in dB
+
+    Parameters: atten: Max. attenuation in stopband, in dB
+
+    Return: Kaiser window parameter beta
+    """
+    if atten < 21.0:
+        beta = 0.0
+    elif atten >= 21.0 and atten <= 50.0:
+        beta = 0.5842*(atten - 21.0)**(0.4) + 0.07886*(atten - 21.0)
+    else:
+        beta = 0.1102*(atten - 8.7)
+    return beta
+    
+
 
 def designFIRFilter(N, bands, atten, filterType, method, table=None):
     """
     Function to iteratively design a FIR/MA filter using the Kaiser window method
+    
     Parameters: N: Filter order, this needs to be even
          center_freqs: Center (normalized) frequencies of the pass (or stop) bands, lower frequency is
                        in index 0
@@ -279,6 +300,7 @@ def designFIRFilter(N, bands, atten, filterType, method, table=None):
            filterType: Type of filter, is either "Pass" or "Stop"
                method: Method used to design filter - is either "Kaiser" or "ParksMcClellan"
                 table: Table of frequency response values if input file is in table format
+                
     Return: A_N: Coefficent array for filter, coef. of Z^-N term is in position 0 in array
               N: Filter order
         t_width: Transition band width, in normalized frequency
@@ -287,34 +309,31 @@ def designFIRFilter(N, bands, atten, filterType, method, table=None):
     A_N = np.zeros(1)
     t_width = 0.0
     if method == 'Kaiser':
-        if atten < 21.0:
-            beta = 0.0
-        elif atten >= 21.0 and atten <= 50.0:
-            beta = 0.5842*(atten - 21.0)**(0.4) + 0.07886*(atten - 21.0)
-        else:
-            beta = 0.1102*(atten - 8.7)
-        t_width = (atten - 8.0)/(2.285*N)
+        beta = kaiserBeta(atten)
+        t_width = (atten - 8.0)/(2.285*N)#Use Kaiser's formula
+        n_bands = len(bands)
+
+        #Check to see if transition width needs to be resized to improve robustness of synthesis algorithm
+        if n_bands > 1:
+            for ii in range(1,n_bands):
+                if bands[ii][0]-bands[ii-1][1] < t_width:
+                    t_width = (bands[ii][0]-bands[ii-1][1])/3.0
+                    print("Needed to Increase Order N to Meet Spec And Not Break Program- Transition Too Sharp")
+                    N = int((atten - 8.0)/(2.285*t_width) + 1)
+                    print("New Filter Order: " + str(N))
+            if bands[0][0] < t_width or PI - bands[len(bands)-1][1] < t_width:
+                t_width = t_width/3.0
+                print("Needed to Increase Order N to Meet Spec And Not Break Program- Transition Too Sharp")
+                N = int((atten - 8.0)/(2.285*t_width) + 1)
+                print("New Filter Order: " + str(N))
         A_N = designFIRFilterGKaiser(bands, t_width, N + 1, beta, filterType, table=None, plot=False)
     else:
         del_s = 10**(-atten/20.0)
         del_p = 10**(1-(atten/20.0))
         t_width = (1.0/(14.6*N))*((2.0*np.pi)*(-20.0*np.log10(np.sqrt(del_s*del_p))-13.0))
-        A_N = designFIRFilterParksMcClellan(N, t_width, bands, filterType)
+        A_N = designFIRFilterParksMcClellan(N, t_width, bands, filterType, plot=False)
     return A_N, t_width
 
-"""    
-def main():
-    PI = np.pi
-    M = 40
-    t_width = 0.06*PI
-    center_wvlengths = np.array([1540])
-    bands = obtainBandsFromCenterWvlengths(center_wvlengths, np.array([1560, 1520]), 8, 'Pass')
-    A_N, N = designFIRFilterEigen(M, t_width, bands, plot=True)
-    #A_N = (np.array([1547, 1538]), np.array([1555,1532]), 4, 'Pass', 50, 0.03*PI)
-    
-if __name__ == '__main__':
-    main()
-"""
 
 
 

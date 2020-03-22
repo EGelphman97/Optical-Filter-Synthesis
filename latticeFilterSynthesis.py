@@ -1,7 +1,7 @@
 """
 Eric Gelphman
 UC San Diego Department of Electrical and Computer Engineering
-Last Updated March 20, 2020 Version 1.1.2
+Last Updated March 20, 2020 Version 1.1.3
 
 Implementation of Madsen and Zhao's Optical MA/FIR Lattice Filter Design Algorithm
 
@@ -11,9 +11,7 @@ Required Packages:
 -matplotlib.pyplot
 """
 
-#import designFilter as dF
 import numpy as np
-from scipy import integrate
 from scipy.signal import freqz
 import matplotlib.pyplot as plt
 
@@ -84,8 +82,6 @@ def findBPolyMA(A, plot=True):
     #Spectral factorization
     b_roots = spectralFactorization(roots, bbr.order/2)
     B_tild = np.poly1d(b_roots, True)#Construct polynomial from its roots
-    #print(B_tild)
-    #print(B_tild.coef[B_tild.coef.size-1]*B_tild.coef[0])
     alpha = np.sqrt((-A[A.size-1]*A[0])/(B_tild.coef[B_tild.coef.size-1]*B_tild.coef[0]))#Scale factor
     B = alpha*B_tild#Build B_N(z) by scaling B_tild(z) by alpha
     return np.flip(B)#Hihest degree coef. is actually in lowest degree coef. before flip, so need flip
@@ -168,8 +164,7 @@ def inverseFIRSynthesis(kappas, phis, gamma):
     Parameters: kappas: Array of kappa_n's 0 <= n <= N    N = filter order
                   phis: Array of phi_n's 1 <= n <= N
                  gamma: Loss coefficient per stage
-                  
-            
+                       
     Return: Polynomials A_N(z), B_N(z), A_N_R(z), B_N_R(z) that form 2x2 transfer function of filter
     """
     A_N1 = np.array([np.sqrt(1.0-kappas[0])])#A_0(z) = c_0
@@ -196,18 +191,6 @@ def inverseFIRSynthesis(kappas, phis, gamma):
     B_N_R = np.conj(np.flip(B_N1))
     return A_N1, B_N1, A_N_R, B_N_R
 
-"""   
-def main():
-    PI = np.pi
-    plt.title('MA filter frequency response')
-    plt.plot(np.flip(wvlength), 20*np.log10(abs(h)), 'b')
-    plt.ylabel('Amplitude [dB]', color='b')
-    plt.xlabel('Wavelength [um]')
-    plt.show()
-                 
-if __name__ == '__main__':
-    main()
-"""    
         
     
     

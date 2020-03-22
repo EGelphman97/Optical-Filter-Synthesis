@@ -1,18 +1,18 @@
 """
 Eric Gelphman
 UC San Diego Department of Electrical and Computer Engineering
-Last Updated March 20, 2020 Version 1.1.2
+Last Updated March 21, 2020 Version 1.1.4
 
 Driver program for lattice filter synthesis, if __name__ == "__main__"
 is here
 
-Required Packages:
+Required Packages/Files:
 -sys
 -designFilter
 -latticeFilterSynthesis
 -numpy
--scipy.signal: freqz
--matplotlib.pyplot
+-scipy.signal: freqz (no need to import whole package)
+-matplotlib: pyplot  (no need to import whole package)
 """
 
 import sys
@@ -71,7 +71,6 @@ def determineWavelengthEndpoints(center_wvlengths, band_wvlength):
     return np.array([lambda0, lambda1])        
 
 
-#Function to recieve the necessary parameters from an input file to design the filter
 def receiveFilterParametersFile(filename):
     """
     Function to recieve the necessary parameters from an input file to design the filter
@@ -94,27 +93,27 @@ def receiveFilterParametersFile(filename):
     file1 = open(filename, 'r+')
     params = []
     text = file1.readlines()
-    if len(text) < 18:
+    if len(text) < 8:
         print("Error! Not Enough Input Parameters!")
         exit()
-    params.append(float(text[9]))#Group index n_g
-    line10 = text[10].strip('\n').split(',')
-    params.append(float(line10[0]))#l_c
-    params.append(float(line10[1]))#l_end
-    params.append(float(text[11]))#L_2
-    line12 = text[12].strip()
-    params.append(line12.strip('%\n'))#Pass or Stop, indicating filter type
-    num_bands = int(text[13])#Number of bands (1 or 2 for now)
+    params.append(float(text[0].split('//')[0]))#Group index n_g
+    line1 = text[1].split('//')[0].split(',')
+    params.append(float(line1[0]))#l_c
+    params.append(float(line1[1]))#l_end
+    params.append(float(line1[2]))#L_2
+    line2 = text[2].split('//')[0]
+    params.append(line2)#Pass or Stop, indicating filter type
+    num_bands = int(text[3].split('//')[0])#Number of bands (1 or 2 for now)
     params.append(num_bands)
     if num_bands == 1:
-        params.append(float(text[14]))
+        params.append(float(text[4].split('//')[0]))
     elif num_bands == 2:
-        line14 = text[14].strip('\n').split(',')
-        params.append(float(line14[0]))#First center wavelength
-        params.append(float(line14[1]))#Second center wavelength
-    params.append(float(text[15]))#Pass/Stop band width (in nm)
-    params.append(float(text[16]))#Max. stopband attenuation
-    params.append(int(text[17]))#Filter order
+        line4 = text[4].split('//')[0].split(',')
+        params.append(float(line4[0]))#First center wavelength
+        params.append(float(line4[1]))#Second center wavelength
+    params.append(float(text[5].split('//')[0]))#Pass/Stop band width (in nm)
+    params.append(float(text[6].split('//')[0]))#Max. stopband attenuation
+    params.append(int(text[7].split('//')[0]))#Filter order
     return params
 
 
@@ -166,8 +165,6 @@ def processFilterParametersFile(params):
         atten = params[9]
         N = params[10]
     bands = dF.obtainBandsFromCenterWvlengths(center_wvlengths, endpoints, band_wvlength, filter_type)
-    for ii in range(len(bands)):
-        print("Band: [" + str(bands[ii][0]) + "," + str(bands[ii][1]) + "]") 
     return L_U, lengths, bands, N, filter_type, endpoints, atten, center_wvlengths, band_wvlength
 
 
@@ -190,23 +187,23 @@ def processFilterParametersTable(tableFile):
     """
     file1 = open(tableFile, 'r+')
     text = file1.readlines()
-    n_g = float(text[0])
-    line1 = text[1].strip('\n').split(',')
+    n_g = float(text[0].split('//')[0])
+    line1 = text[1].split('//')[0].split(',')
     lc = float(line1[0])
     lend = float(line1[1])
     L2 = float(line1[2])
     lengths = np.array([lc, lend, L2])
-    filter_type = text[2].strip('\n')
-    num_bands = int(text[3])
+    filter_type = text[2].split('//')[0]
+    num_bands = int(text[3].split('//')[0])
     center_wvlengths = np.array([0.0])
     if num_bands == 1:
-        center_wvlengths[0] = float(text[4])
+        center_wvlengths[0] = float(text[4].split('//')[0])
     elif num_bands == 2:
-        vals = text[4].strip('\n').split(',')
-        center_wvlengths = np.array([float(vals[0]), float(vals[1])])   
-    band_wvlength = float(text[5])
-    atten = float(text[6])
-    N = int(text[7])
+        vals = text[4].split('//')[0].split(',')
+        center_wvlengths = np.array([float(vals[0]), float(vals[1])])
+    band_wvlength = float(text[5].split('//')[0])
+    atten = float(text[6].split('//')[0])
+    N = int(text[7].split('//')[0])
     lambda1 = float(text[len(text)-1].strip('\n').split(',')[0])#Longest wavelength/lowest frequency
     lambda0 = float(text[8].strip('\n').split(',')[0])#Shortest wavelength/highest frequency
     table = np.zeros((len(text)-8,2))
@@ -258,7 +255,7 @@ def graphTLambda(A_N, band_wvlength, endpoints, center_wvlengths, atten, filter_
           endpoints: endpoints of wavelength interval of interest
 
     Return: None
-"""
+    """
     PI = np.pi
     w, h = freqz(np.flip(A_N))#Need to flip according to numpy/scipy documentation, remember the coef. of term with
     #highest power of z^-1 occupies index 0 of array-see ECE 161B notes
@@ -322,34 +319,18 @@ def graphTLambda(A_N, band_wvlength, endpoints, center_wvlengths, atten, filter_
     plt.xlabel('Wavelength [um]')
     plt.show()
 
-
-def generateTableFile(filename):
-    file1 = open(filename, 'r+')#open file
-    file1.write("4.0\n")#n_g
-    file1.write("2.0,2.1,5.0\n")#Lengths for layout
-    file1.write("Stop\n")
-    file1.write("2\n")
-    file1.write("1547,1537\n")
-    file1.write("2.0\n")
-    file1.write("50\n")
-    file1.write("76\n")
-    wv_lengths = np.linspace(1527, 1557, 1024)
-    for ii in range(wv_lengths.size):
-        if (wv_lengths[ii] >= 1536 and wv_lengths[ii] <= 1538):
-            file1.write(str(wv_lengths[ii])+","+str(-60.0)+"\n")
-        elif wv_lengths[ii] >= 1546 and wv_lengths[ii] <= 1548:
-            file1.write(str(wv_lengths[ii])+","+str(-60.0)+"\n")
-        else: 
-            file1.write(str(wv_lengths[ii])+","+str(0.0)+"\n")
-        
     
 def main():
     num_args = len(sys.argv)
-    if num_args < 3 or num_args > 4:
-        print("Error! Not enough or too many args, format should by synthesisDriver.py [-l or -t] [fileName] [Kaiser or Parks-McClellan if l]")
-        print("For a total of 3 args if t, or 4 args if l")
+    if num_args < 4 or num_args > 5:
+        print("Error! Not enough or too many args, format should by synthesisDriver.py [-l or -t] [inputFileName] [outputFileName] [Kaiser or Parks-McClellan if l]")
+        print("For a total of 4 args if t, or 5 args if l")
         exit()
-    fileName = sys.argv[2]#Input file name
+    inputFileType = sys.argv[1]#Inidicates inpur file type, either list (-l) or table (-t)
+    inputFileName = sys.argv[2]#Input file name
+    outputFileName = sys.argv[3]#Output file name
+
+    #Declare needed variables
     L_U = 0.0
     atten = 0.0
     band_wvlength = 0.0
@@ -361,36 +342,38 @@ def main():
     endpoints = np.zeros(2)
     center_wvlengths = np.zeros(1)
     table = []
-    if sys.argv[1] == '-t':   
-        generateTableFile("filterTable1.txt")
-        fileName = "filterTable1.txt"
-    if sys.argv[1] == '-l':#Input file is in list format
-        params = receiveFilterParametersFile(fileName)
-        method = sys.argv[3]
-        L_U, lengths, bands, N, filter_type, endpoints, atten, center_wvlengths, band_wvlength = processFilterParametersFile(params)
-    elif sys.argv[1] == '-t':#Input file is in table format
-        L_U, lengths, bands, N, filter_type, endpoints, atten, center_wvlengths, band_wvlength, table = processFilterParametersTable(fileName)
-        method = 'Kaiser'
-    bands = dF.obtainBandsFromCenterWvlengths(center_wvlengths, endpoints, band_wvlength, filter_type)
-    #Design the filter
     A_N = np.zeros(1)
     t_width = 0.0
-    if len(table) > 0:
-        A_N, t_width = dF.designFIRFilter(N, bands, atten, filter_type, method, table)
-    else:
-        A_N, t_width = dF.designFIRFilter(N, bands, atten, filter_type, method)
+
+    #Design the filter
+    if inputFileType == '-l':#Input file is in list format
+        params = receiveFilterParametersFile(inputFileName)
+        method = sys.argv[4]
+        L_U, lengths, bands, N, filter_type, endpoints, atten, center_wvlengths, band_wvlength = processFilterParametersFile(params)
+        del table
+        bands = dF.obtainBandsFromCenterWvlengths(center_wvlengths, endpoints, band_wvlength, filter_type)
+        A_N, t_width = dF.designFIRFilter(N, bands, atten, filter_type, method)#Design filter
+    elif inputFileType == '-t':#Input file is in table format
+        L_U, lengths, bands, N, filter_type, endpoints, atten, center_wvlengths, band_wvlength, table = processFilterParametersTable(inputFileName)
+        method = 'Kaiser'
+        bands = dF.obtainBandsFromCenterWvlengths(center_wvlengths, endpoints, band_wvlength, filter_type)
+        A_N, t_width = dF.designFIRFilter(N, bands, atten, filter_type, method, table)#Design filter
+        
     if A_N[0] > 0.0:
         A_N = -1.0*A_N#Synthesis algorithm works best if leading coefficient is negative
     A_z = np.poly1d(A_N)
-    print(A_z)
+    
     if filter_type == 'Stop':
         passbands = dF.obtainPassbandsFromStopbands(bands, t_width)
         bands = passbands
-    print(lengths)
+
+    #Synthesize the filter using the lattice architecture   
     fac = lengths[2]*1E-04#Convert alpha to dB/um as L_2 is in um
     gamma = 10**(-1*fac/20)#Loss coefficient per stage, depends on length L_2 of MZI stage
     kappalcs, phis, B_N = lfs.synthesizeFIRLattice(A_N, N, gamma)
-    writeLayoutParametersToFile(kappalcs, phis, L_U, 25.0, "layoutParameters.txt", N, method)
+
+    #Write layout parameters to the file, graph filter frequency response
+    writeLayoutParametersToFile(kappalcs, phis, L_U, 25.0, outputFileName, N, method)
     graphTLambda(A_N, band_wvlength, endpoints, center_wvlengths, atten, filter_type)
 
 if __name__ == '__main__':
