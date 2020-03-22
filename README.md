@@ -13,4 +13,6 @@ $ python3 synthesisDriver.py -t inputFileWithTableName.txt outputFilename.txt //
 The file latticeFilterSynthesis.py contains the implementation of the synthesis algorithm and its "inverse", as outlined in Section 4.5 of Madsen and Zhao
 
 The file designFilter.py contains the implementation of all functions needed for filter design and the conversion between the continuous-time and discrete-time frequency domains. 
+
+The file ARFilterSynthesis.py is still under development. It is an incomplete implementation of an extension of the synthesis algorithm for MA/FIR filter to the AR/all pole case. This is outlined in Section 5.2 of Madsen and Zhao
     
