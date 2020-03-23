@@ -1,7 +1,7 @@
 """
 Eric Gelphman
 UC San Diego Department of Electrical and Computer Engineering
-Last Updated March 21, 2020 Version 1.1.4
+Last Updated March 22, 2020 Version 1.1.5
 
 Python Script that has methods to obtain the transfer function H(z)
 Of digital filters as an array of coefficients. These coefs. will then be
@@ -176,9 +176,8 @@ def designFIRFilterGKaiser(bands, t_width, num_coefs, beta, filterType, table=No
     Parameters:   bands: list of 3-tuples (omega_p1, omega_p2) where omega_p1 <= omega <= omega_p2
                          is one band of the multiband filter
                 t_width: min. transition width for any band in the multiband filter
-              num_coefs: Order of filter plus one(number of taps) The filter order needs to be even, so this should be odd
-                         This is because we want the filter to be a Type I linear phase system, which has no restriction on the
-                         location of its zeros 
+              num_coefs: Order of filter plus one(number of taps) The filter order can be even or odd for bandpass filters, but
+                         the filter needs to be even for a bandstop filter. 
                    beta: Kaiser parameter beta, depends on attenuation, determined using one of numpy's
                          built-in functions
              filterType: 'Pass" or 'Stop' indicating whether it is a bandpass or bandstop filter
@@ -197,7 +196,9 @@ def designFIRFilterGKaiser(bands, t_width, num_coefs, beta, filterType, table=No
     h_d = np.fft.irfft(H_ejw)#Desired filter response, in time domain
     #Build coef array
     alpha = order/2
-    h_d = np.roll(h_d, int(alpha))#Need to shift by order/2 so Kaiser window captures most of the energy
+    if order % 2 != 0:#If order is odd
+        alpha = (order+1)/2
+    h_d = np.roll(h_d, int(alpha))#Need to shift by alpha so Kaiser window captures most of the energy
     coefs = np.zeros(num_coefs)
     for ii in range(num_coefs):
         kaiser_window_coef = i0(beta*np.sqrt(1.0 - ((ii-alpha)/alpha)**2))/i0(beta)
@@ -293,7 +294,11 @@ def designFIRFilter(N, bands, atten, filterType, method, table=None):
     """
     Function to iteratively design a FIR/MA filter using the Kaiser window method
     
-    Parameters: N: Filter order, this needs to be even
+    Parameters:     N: Filter order, this can be even or odd for bandpass filters, but must be even for
+                       bandstop filters. This is because the filter design functions implemented design filters
+                       to be either Type I or Type II linear phase systems. A bandpass filter can be realized
+                       using a Type I or Type II linear phase system, but a bandstop can only be realized using
+                       a Type I.
          center_freqs: Center (normalized) frequencies of the pass (or stop) bands, lower frequency is
                        in index 0
                 bands: List of tuples representing passband intervals, in units of normalized frequency
@@ -308,31 +313,42 @@ def designFIRFilter(N, bands, atten, filterType, method, table=None):
     PI = np.pi
     A_N = np.zeros(1)
     t_width = 0.0
+    n_bands = len(bands)
     if method == 'Kaiser':
         beta = kaiserBeta(atten)
         t_width = (atten - 8.0)/(2.285*N)#Use Kaiser's formula
-        n_bands = len(bands)
 
         #Check to see if transition width needs to be resized to improve robustness of synthesis algorithm
         if n_bands > 1:
             for ii in range(1,n_bands):
-                if bands[ii][0]-bands[ii-1][1] < t_width:
-                    t_width = (bands[ii][0]-bands[ii-1][1])/3.0
+                if (bands[ii][0]-bands[ii-1][1])/2.0 < t_width:
+                    t_width = (bands[ii][0]-bands[ii-1][1])/2.5
                     print("Needed to Increase Order N to Meet Spec And Not Break Program- Transition Too Sharp")
                     N = int((atten - 8.0)/(2.285*t_width) + 1)
                     print("New Filter Order: " + str(N))
-            if bands[0][0] < t_width or PI - bands[len(bands)-1][1] < t_width:
-                t_width = t_width/3.0
-                print("Needed to Increase Order N to Meet Spec And Not Break Program- Transition Too Sharp")
-                N = int((atten - 8.0)/(2.285*t_width) + 1)
-                print("New Filter Order: " + str(N))
+        
+        #If bandstop, filter needs to be a Type I linear phase system
+        if filterType == 'Stop' and N % 2 != 0:
+            N = N + 1
+            
+        #Design filter using Kaiser window method
         A_N = designFIRFilterGKaiser(bands, t_width, N + 1, beta, filterType, table=None, plot=False)
     else:
         del_s = 10**(-atten/20.0)
-        del_p = 10**(1-(atten/20.0))
+        del_p = 10**(1.0-(atten/20.0))
         t_width = (1.0/(14.6*N))*((2.0*np.pi)*(-20.0*np.log10(np.sqrt(del_s*del_p))-13.0))
+        
+        #Check to see if transition width needs to be resized to improve robustness of synthesis algorithm
+        for ii in range(1,n_bands):
+                if (bands[ii][0]-bands[ii-1][1])/2.0 < t_width:
+                    t_width = (bands[ii][0]-bands[ii-1][1])/2.5
+                    print("Needed to Increase Order N to Meet Spec And Not Break Program- Transition Too Sharp")
+                    N = int((1.0/(14.6*t_width))*((2.0*PI)*(-20*np.log10(np.sqrt(del_s*del_p))-13.0)) + 1)
+                    print("New Filter Order: " + str(N))
+            
+        #Design filter using Parks - McClellan Method
         A_N = designFIRFilterParksMcClellan(N, t_width, bands, filterType, plot=False)
-    return A_N, t_width
+    return A_N, N, t_width
 
 
 

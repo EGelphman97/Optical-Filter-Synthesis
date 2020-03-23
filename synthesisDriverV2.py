@@ -3,19 +3,17 @@ Eric Gelphman
 UC San Diego Department of Electrical and Computer Engineering
 Last Updated March 22, 2020 Version 1.1.5
 
-Driver program for lattice filter synthesis, if __name__ == "__main__"
-is here
+Driver program version 2 for lattice filter synthesis, if __name__ == "__main__"
+is here. This version is designed to be run in a Python IDE
 
-Required Packages/Files:
--sys
+Required Packages:
 -designFilter
 -latticeFilterSynthesis
 -numpy
--scipy.signal: freqz (no need to import whole package)
--matplotlib: pyplot  (no need to import whole package)
+-scipy.signal: freqz
+-matplotlib.pyplot
 """
 
-import sys
 import designFilter as dF
 import latticeFilterSynthesis as lfs
 import numpy as np
@@ -56,14 +54,22 @@ def determineWavelengthEndpoints(center_wvlengths, band_wvlength):
     PI = np.pi
     n_bands = center_wvlengths.size
     if n_bands == 1:
-        lambda0 = center_wvlengths[0] + (band_wvlength/2.0) + 23
-        lambda1 = center_wvlengths[0] - (band_wvlength/2.0) - 23
+        lambda0 = center_wvlengths[0] + 23
+        lambda1 = center_wvlengths[0] - 23
     else:
-        lambda0 = center_wvlengths[0] + (band_wvlength/2.0) + 10
-        lambda1 = center_wvlengths[1] - (band_wvlength/2.0) - 10
+        lambda0 = center_wvlengths[0] + 12
+        lambda1 = center_wvlengths[1] - 12
+        omega_1 = dF.convertToNormalizedFrequency(lambda0, lambda1, center_wvlengths[0]+(band_wvlength/2.0))
+        omega_2 = dF.convertToNormalizedFrequency(lambda0, lambda1, center_wvlengths[1]-(band_wvlength/2.0))
+        while omega_1 < 0.05*PI or omega_2 > 0.95*PI:
+            lambda0 = lambda0 + 2
+            lambda1 = lambda1 - 2
+            omega_1 = dF.convertToNormalizedFrequency(lambda0, lambda1, center_wvlengths[0])
+            omega_2 = dF.convertToNormalizedFrequency(lambda0, lambda1, center_wvlengths[1])
     return np.array([lambda0, lambda1])        
 
 
+#Function to recieve the necessary parameters from an input file to design the filter
 def receiveFilterParametersFile(filename):
     """
     Function to recieve the necessary parameters from an input file to design the filter
@@ -86,27 +92,27 @@ def receiveFilterParametersFile(filename):
     file1 = open(filename, 'r+')
     params = []
     text = file1.readlines()
-    if len(text) < 8:
+    if len(text) < 18:
         print("Error! Not Enough Input Parameters!")
         exit()
-    params.append(float(text[0].split('//')[0]))#Group index n_g
-    line1 = text[1].split('//')[0].split(',')
-    params.append(float(line1[0]))#l_c
-    params.append(float(line1[1]))#l_end
-    params.append(float(line1[2]))#L_2
-    line2 = text[2].split('//')[0]
-    params.append(line2)#Pass or Stop, indicating filter type
-    num_bands = int(text[3].split('//')[0])#Number of bands (1 or 2 for now)
+    params.append(float(text[9]))#Group index n_g
+    line10 = text[10].strip('\n').split(',')
+    params.append(float(line10[0]))#l_c
+    params.append(float(line10[1]))#l_end
+    params.append(float(text[11]))#L_2
+    line12 = text[12].strip()
+    params.append(line12.strip('%\n'))#Pass or Stop, indicating filter type
+    num_bands = int(text[13])#Number of bands (1 or 2 for now)
     params.append(num_bands)
     if num_bands == 1:
-        params.append(float(text[4].split('//')[0]))
+        params.append(float(text[14]))
     elif num_bands == 2:
-        line4 = text[4].split('//')[0].split(',')
-        params.append(float(line4[0]))#First center wavelength
-        params.append(float(line4[1]))#Second center wavelength
-    params.append(float(text[5].split('//')[0]))#Pass/Stop band width (in nm)
-    params.append(float(text[6].split('//')[0]))#Max. stopband attenuation
-    params.append(int(text[7].split('//')[0]))#Filter order
+        line14 = text[14].strip('\n').split(',')
+        params.append(float(line14[0]))#First center wavelength
+        params.append(float(line14[1]))#Second center wavelength
+    params.append(float(text[15]))#Pass/Stop band width (in nm)
+    params.append(float(text[16]))#Max. stopband attenuation
+    params.append(int(text[17]))#Filter order
     return params
 
 
@@ -180,23 +186,23 @@ def processFilterParametersTable(tableFile):
     """
     file1 = open(tableFile, 'r+')
     text = file1.readlines()
-    n_g = float(text[0].split('//')[0])
-    line1 = text[1].split('//')[0].split(',')
+    n_g = float(text[0])
+    line1 = text[1].strip('\n').split(',')
     lc = float(line1[0])
     lend = float(line1[1])
     L2 = float(line1[2])
     lengths = np.array([lc, lend, L2])
-    filter_type = text[2].split('//')[0]
-    num_bands = int(text[3].split('//')[0])
+    filter_type = text[2].strip('\n')
+    num_bands = int(text[3])
     center_wvlengths = np.array([0.0])
     if num_bands == 1:
-        center_wvlengths[0] = float(text[4].split('//')[0])
+        center_wvlengths[0] = float(text[4])
     elif num_bands == 2:
-        vals = text[4].split('//')[0].split(',')
-        center_wvlengths = np.array([float(vals[0]), float(vals[1])])
-    band_wvlength = float(text[5].split('//')[0])
-    atten = float(text[6].split('//')[0])
-    N = int(text[7].split('//')[0])
+        vals = text[4].strip('\n').split(',')
+        center_wvlengths = np.array([float(vals[0]), float(vals[1])])   
+    band_wvlength = float(text[5])
+    atten = float(text[6])
+    N = int(text[7])
     lambda1 = float(text[len(text)-1].strip('\n').split(',')[0])#Longest wavelength/lowest frequency
     lambda0 = float(text[8].strip('\n').split(',')[0])#Shortest wavelength/highest frequency
     table = np.zeros((len(text)-8,2))
@@ -248,7 +254,7 @@ def graphTLambda(A_N, band_wvlength, endpoints, center_wvlengths, atten, filter_
           endpoints: endpoints of wavelength interval of interest
 
     Return: None
-    """
+"""
     PI = np.pi
     w, h = freqz(np.flip(A_N))#Need to flip according to numpy/scipy documentation, remember the coef. of term with
     #highest power of z^-1 occupies index 0 of array-see ECE 161B notes
@@ -311,7 +317,7 @@ def graphTLambda(A_N, band_wvlength, endpoints, center_wvlengths, atten, filter_
     plt.ylabel('Transmission [dB]', color='b')
     plt.xlabel('Wavelength [um]')
     plt.show()
-
+        
     
 def main():
     num_args = len(sys.argv)
@@ -319,9 +325,10 @@ def main():
         print("Error! Not enough or too many args, format should by synthesisDriver.py [-l or -t] [inputFileName] [outputFileName] [Kaiser or Parks-McClellan if l]")
         print("For a total of 4 args if t, or 5 args if l")
         exit()
-    inputFileType = sys.argv[1]#Indicates inpur file type, either list (-l) or table (-t)
-    inputFileName = sys.argv[2]#Input file name
-    outputFileName = sys.argv[3]#Output file name
+    inputFileName = 'inputFileName.txt'#Modify this line to specify input file name
+    outputFileName = 'outputFileName.txt'#Modify this line to specify output file name
+    inputFileFormat = 'letter'#Modify this line to specify input file format
+    method = ''#Modify this line to specify filter design method if not using table format
 
     #Declare needed variables
     L_U = 0.0
@@ -368,6 +375,6 @@ def main():
     #Write layout parameters to the file, graph filter frequency response
     writeLayoutParametersToFile(kappalcs, phis, L_U, 25.0, outputFileName, order, method)
     graphTLambda(A_N, band_wvlength, endpoints, center_wvlengths, atten, filter_type)
-
-if __name__ == '__main__':
+    
+    if __name__ == '__main__':
     main()

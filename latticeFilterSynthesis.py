@@ -1,7 +1,7 @@
 """
 Eric Gelphman
 UC San Diego Department of Electrical and Computer Engineering
-Last Updated March 20, 2020 Version 1.1.3
+Last Updated March 22, 2020 Version 1.1.5
 
 Implementation of Madsen and Zhao's Optical MA/FIR Lattice Filter Design Algorithm
 
